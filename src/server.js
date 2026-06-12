@@ -5,6 +5,18 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { exec } from 'child_process'
 
+// TODO(1): round-trip — add unflattenObject() and use it in /api/save so nested
+//          JSON files are written back with their original structure, not flat.
+//          Also preserve original nesting structure loaded at startup per language.
+
+// TODO(2): export CSV — add GET /api/export/csv endpoint that serialises
+//          { keys, languages } as RFC-4180 CSV (key, lang1, lang2, …) and
+//          streams it with Content-Disposition: attachment; filename=messages.csv
+
+// TODO(3): import CSV — add POST /api/import/csv endpoint that accepts a
+//          multipart or raw CSV body, parses it, merges into current state
+//          (overwrite existing keys, add new ones), and returns the merged data.
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export async function startServer({ dir, port }) {
@@ -97,6 +109,9 @@ function openBrowser(url) {
     : 'xdg-open'
   exec(`${cmd} ${url}`)
 }
+
+// TODO(1-cont): implement unflattenObject to restore dot-keys to nested objects
+// function unflattenObject(flat) { ... }
 
 function flattenObject(obj, prefix = '') {
   const result = {}
