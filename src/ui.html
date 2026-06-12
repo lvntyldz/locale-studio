@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>json-i18n-editor</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f1f5f9;
+  color: #1e293b;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── TOP BAR ── */
+.topbar {
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 0 20px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #1e293b;
+}
+.topbar-logo {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+}
+.topbar-logo span { color: #38bdf8; }
+.topbar-dir {
+  font-size: 11px;
+  color: #64748b;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: #1e293b;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.spacer { flex: 1; }
+.topbar-info {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.btn {
+  padding: 7px 16px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+.btn:active { transform: scale(0.97); }
+.btn-add { background: #0ea5e9; color: #fff; }
+.btn-add:hover { background: #0284c7; }
+.btn-save { background: #22c55e; color: #fff; }
+.btn-save:hover { background: #16a34a; }
+.btn-save.saving { background: #f59e0b; pointer-events: none; }
+
+/* ── STATUS BAR ── */
+.statusbar {
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 6px 20px;
+  font-size: 11.5px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+}
+.dot.dirty { background: #f59e0b; }
+.dot.error { background: #ef4444; }
+
+/* ── TABLE ── */
+.table-wrap {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+thead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+th {
+  background: #e2e8f0;
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #475569;
+  border-right: 1px solid #cbd5e1;
+  border-bottom: 2px solid #94a3b8;
+  white-space: nowrap;
+}
+th.th-key {
+  background: #cbd5e1;
+  color: #334155;
+  position: sticky;
+  left: 0;
+  z-index: 30;
+  min-width: 200px;
+  max-width: 260px;
+}
+th.th-lang { min-width: 200px; }
+th.th-del { width: 48px; background: #e2e8f0; border-right: none; }
+
+tr:nth-child(even) td { background: #f8fafc; }
+tr:hover td { background: #f0f9ff !important; }
+tr:hover td.td-key { background: #e0f2fe !important; }
+
+td {
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+  padding: 0;
+}
+
+td.td-key {
+  background: #f8fafc;
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  border-right: 2px solid #cbd5e1;
+}
+
+.key-wrap {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 10px;
+  min-height: 38px;
+}
+
+input.key-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: #334155;
+  padding: 8px 4px;
+  outline: none;
+  min-width: 0;
+}
+input.key-input:focus {
+  background: #fff;
+  border-radius: 4px;
+  outline: 2px solid #38bdf8;
+  padding: 6px 4px;
+}
+
+textarea.val-input {
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  border: none;
+  background: transparent;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #1e293b;
+  resize: none;
+  outline: none;
+  line-height: 1.5;
+  overflow: hidden;
+}
+textarea.val-input:focus {
+  background: #fefce8;
+  outline: 2px solid #38bdf8;
+  outline-offset: -2px;
+}
+
+td.td-del {
+  border-right: none;
+  text-align: center;
+  vertical-align: middle;
+  width: 48px;
+}
+button.del-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #cbd5e1;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+button.del-btn:hover { color: #ef4444; background: #fee2e2; }
+
+/* ── EMPTY STATE ── */
+.empty {
+  padding: 80px 20px;
+  text-align: center;
+  color: #94a3b8;
+}
+.empty h2 { font-size: 18px; margin-bottom: 8px; color: #64748b; font-weight: 600; }
+.empty p { font-size: 14px; }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 11px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+  z-index: 100;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.ok { background: #16a34a; }
+.toast.err { background: #dc2626; }
+
+/* ── ADD ROW HIGHLIGHT ── */
+tr.new-row td { background: #f0fdf4 !important; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">json-i18n<span>-editor</span></div>
+  <div class="topbar-dir" id="dir-label">messages/</div>
+  <div class="spacer"></div>
+  <div class="topbar-info" id="info-label">—</div>
+  <button class="btn btn-add" onclick="addKey()">＋ Add Key</button>
+  <button class="btn btn-save" id="save-btn" onclick="saveAll()">Save</button>
+</div>
+
+<div class="statusbar">
+  <div class="dot" id="dot"></div>
+  <span id="status-msg">Ready</span>
+  <span style="color:#cbd5e1">·</span>
+  <span>Ctrl+S to save</span>
+</div>
+
+<div class="table-wrap">
+  <table id="tbl">
+    <thead id="thead"></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let state = { languages: [], keys: {}, dir: 'messages/' }
+let dirty = false
+
+async function load() {
+  try {
+    const r = await fetch('/api/messages')
+    state = await r.json()
+    render()
+  } catch(e) {
+    setStatus('error', 'Failed to load — is the server running?')
+  }
+}
+
+function render() {
+  const { languages, keys, dir } = state
+
+  document.getElementById('dir-label').textContent = dir
+  document.getElementById('info-label').textContent =
+    `${Object.keys(keys).length} keys · ${languages.length} language${languages.length !== 1 ? 's' : ''}`
+
+  // Header
+  document.getElementById('thead').innerHTML =
+    `<tr>
+      <th class="th-key">Key</th>
+      ${languages.map(l => `<th class="th-lang">${l}</th>`).join('')}
+      <th class="th-del"></th>
+    </tr>`
+
+  // Rows
+  const entries = Object.entries(keys)
+  if (!entries.length) {
+    document.getElementById('tbody').innerHTML =
+      `<tr><td colspan="${languages.length + 2}">
+        <div class="empty">
+          <h2>No translations yet</h2>
+          <p>Click "＋ Add Key" to create your first translation key.</p>
+        </div>
+      </td></tr>`
+    return
+  }
+
+  document.getElementById('tbody').innerHTML = entries.map(([key, vals]) =>
+    `<tr data-key="${esc(key)}">
+      <td class="td-key">
+        <div class="key-wrap">
+          <input class="key-input" value="${esc(key)}"
+            onblur="renameKey('${esc(key)}', this)"
+            onkeydown="if(event.key==='Enter'){this.blur()}" />
+        </div>
+      </td>
+      ${languages.map(l =>
+        `<td>
+          <textarea class="val-input" data-lang="${esc(l)}"
+            oninput="autoResize(this); markDirty()">${esc(vals[l] ?? '')}</textarea>
+        </td>`
+      ).join('')}
+      <td class="td-del">
+        <button class="del-btn" title="Delete key" onclick="deleteKey('${esc(key)}')">×</button>
+      </td>
+    </tr>`
+  ).join('')
+
+  document.querySelectorAll('textarea.val-input').forEach(autoResize)
+  dirty = false
+  setStatus('ok', 'Ready')
+}
+
+function autoResize(el) {
+  el.style.height = 'auto'
+  el.style.height = Math.max(38, el.scrollHeight) + 'px'
+}
+
+function markDirty() {
+  if (!dirty) {
+    dirty = true
+    setStatus('dirty', 'Unsaved changes')
+  }
+}
+
+function setStatus(type, msg) {
+  const dot = document.getElementById('dot')
+  document.getElementById('status-msg').textContent = msg
+  dot.className = 'dot' + (type === 'dirty' ? ' dirty' : type === 'error' ? ' error' : '')
+}
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;')
+}
+
+function collectState() {
+  const keys = {}
+  document.querySelectorAll('tr[data-key]').forEach(row => {
+    const keyInput = row.querySelector('.key-input')
+    const key = keyInput ? keyInput.value.trim() : row.dataset.key
+    if (!key) return
+    keys[key] = {}
+    state.languages.forEach(lang => {
+      const ta = row.querySelector(`textarea[data-lang="${lang}"]`)
+      keys[key][lang] = ta ? ta.value : ''
+    })
+  })
+  return keys
+}
+
+function renameKey(oldKey, input) {
+  const newKey = input.value.trim()
+  if (!newKey || newKey === oldKey) { input.value = oldKey; return }
+  if (state.keys[newKey] !== undefined) {
+    showToast('Key already exists', 'err')
+    input.value = oldKey
+    return
+  }
+  const vals = state.keys[oldKey]
+  delete state.keys[oldKey]
+  state.keys[newKey] = vals
+  // Update row data-key
+  const row = input.closest('tr')
+  if (row) row.dataset.key = newKey
+  input.value = newKey
+  markDirty()
+}
+
+function addKey() {
+  const key = prompt('New key name (e.g. hero_title):')
+  if (!key?.trim()) return
+  const k = key.trim()
+  if (state.keys[k] !== undefined) { showToast('Key already exists', 'err'); return }
+
+  state.keys = collectState()
+  state.keys[k] = Object.fromEntries(state.languages.map(l => [l, '']))
+  render()
+  markDirty()
+
+  // Focus first textarea of the new row
+  const rows = document.querySelectorAll('tr[data-key]')
+  const last = rows[rows.length - 1]
+  if (last) {
+    last.classList.add('new-row')
+    last.querySelector('textarea')?.focus()
+    last.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }
+}
+
+function deleteKey(key) {
+  if (!confirm(`Delete key "${key}"?\nThis cannot be undone.`)) return
+  state.keys = collectState()
+  delete state.keys[key]
+  render()
+  markDirty()
+}
+
+async function saveAll() {
+  state.keys = collectState()
+  const btn = document.getElementById('save-btn')
+  btn.textContent = 'Saving…'
+  btn.classList.add('saving')
+  setStatus('dirty', 'Saving…')
+
+  try {
+    const r = await fetch('/api/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state)
+    })
+    if (!r.ok) throw new Error('Server error')
+    dirty = false
+    btn.textContent = 'Save'
+    btn.classList.remove('saving')
+    setStatus('ok', 'Saved')
+    showToast('Saved ✓', 'ok')
+  } catch(e) {
+    btn.textContent = 'Save'
+    btn.classList.remove('saving')
+    setStatus('error', 'Error saving')
+    showToast('Error saving files', 'err')
+  }
+}
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast')
+  t.textContent = msg
+  t.className = `toast show ${type}`
+  clearTimeout(t._timer)
+  t._timer = setTimeout(() => t.className = 'toast', 2500)
+}
+
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveAll() }
+})
+
+load()
+</script>
+</body>
+</html>
