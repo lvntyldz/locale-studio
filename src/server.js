@@ -26,33 +26,16 @@ export async function startServer({ dir, port }) {
 
     if (url.pathname === '/api/messages' && req.method === 'GET') {
       try {
-        const files = (await readdir(dir)).filter(f => f.endsWith('.json')).sort()
-        const languages = files.map(f => f.replace('.json', ''))
-        const allKeys = new Set()
-        const raw = {}
-
-        for (const lang of languages) {
-          const content = JSON.parse(await readFile(join(dir, `${lang}.json`), 'utf8'))
-          raw[lang] = flattenObject(content)
-          Object.keys(raw[lang]).forEach(k => allKeys.add(k))
-        }
-
-        const keys = {}
-        for (const key of [...allKeys].sort()) {
-          keys[key] = {}
-          for (const lang of languages) {
-            keys[key][lang] = raw[lang]?.[key] ?? ''
-          }
-        }
-
+        const data = await loadMessages(dir)
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        return res.end(JSON.stringify({ languages, keys, dir }))
+        return res.end(JSON.stringify({ ...data, dir }))
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         return res.end(JSON.stringify({ error: e.message }))
       }
     }
 
+    // Feature 1: round-trip — unflatten dot-keys back to nested structure before writing
     if (url.pathname === '/api/save' && req.method === 'POST') {
       let body = ''
       req.on('data', d => body += d)
@@ -60,16 +43,80 @@ export async function startServer({ dir, port }) {
         try {
           const { languages, keys } = JSON.parse(body)
           for (const lang of languages) {
-            const obj = {}
+            const flat = {}
             for (const [key, vals] of Object.entries(keys)) {
-              if (vals[lang] !== undefined) obj[key] = vals[lang]
+              if (vals[lang] !== undefined) flat[key] = vals[lang]
             }
-            await writeFile(join(dir, `${lang}.json`), JSON.stringify(obj, null, 2) + '\n')
+            const nested = unflattenObject(flat)
+            await writeFile(join(dir, `${lang}.json`), JSON.stringify(nested, null, 2) + '\n')
           }
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true }))
         } catch (e) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+      return
+    }
+
+    // Feature 2: Export CSV — RFC-4180, header row: key,lang1,lang2,...
+    if (url.pathname === '/api/export/csv' && req.method === 'GET') {
+      try {
+        const { languages, keys } = await loadMessages(dir)
+        const rows = [['key', ...languages]]
+        for (const [key, vals] of Object.entries(keys)) {
+          rows.push([key, ...languages.map(l => vals[l] ?? '')])
+        }
+        const csv = rows.map(row => row.map(csvField).join(',')).join('\r\n')
+        res.writeHead(200, {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': 'attachment; filename=messages.csv'
+        })
+        return res.end(csv)
+      } catch (e) {
+        res.writeHead(500)
+        return res.end('Error: ' + e.message)
+      }
+    }
+
+    // Feature 3: Import CSV — merge into current state, return merged { languages, keys, dir }
+    if (url.pathname === '/api/import/csv' && req.method === 'POST') {
+      let body = ''
+      req.on('data', d => body += d)
+      req.on('end', async () => {
+        try {
+          const { languages: csvLangs, keys: csvKeys } = parseCSV(body)
+          if (!csvLangs.length) throw new Error('CSV has no language columns')
+
+          const { languages: existingLangs, keys: existingKeys } = await loadMessages(dir)
+          const allLangs = [...new Set([...existingLangs, ...csvLangs])]
+
+          // Merge: existing as base, CSV overwrites matching keys/langs, new keys added
+          const merged = {}
+          for (const [key, vals] of Object.entries(existingKeys)) {
+            merged[key] = { ...vals }
+          }
+          for (const [key, vals] of Object.entries(csvKeys)) {
+            if (!merged[key]) merged[key] = {}
+            for (const lang of csvLangs) {
+              merged[key][lang] = vals[lang] ?? ''
+            }
+          }
+          // Fill any missing lang slots
+          for (const key of Object.keys(merged)) {
+            for (const lang of allLangs) {
+              if (merged[key][lang] === undefined) merged[key][lang] = ''
+            }
+          }
+
+          const sortedKeys = {}
+          for (const k of Object.keys(merged).sort()) sortedKeys[k] = merged[k]
+
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ languages: allLangs, keys: sortedKeys, dir }))
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: e.message }))
         }
       })
@@ -98,6 +145,29 @@ function openBrowser(url) {
   exec(`${cmd} ${url}`)
 }
 
+async function loadMessages(dir) {
+  const files = (await readdir(dir)).filter(f => f.endsWith('.json')).sort()
+  const languages = files.map(f => f.replace('.json', ''))
+  const allKeys = new Set()
+  const raw = {}
+
+  for (const lang of languages) {
+    const content = JSON.parse(await readFile(join(dir, `${lang}.json`), 'utf8'))
+    raw[lang] = flattenObject(content)
+    Object.keys(raw[lang]).forEach(k => allKeys.add(k))
+  }
+
+  const keys = {}
+  for (const key of [...allKeys].sort()) {
+    keys[key] = {}
+    for (const lang of languages) {
+      keys[key][lang] = raw[lang]?.[key] ?? ''
+    }
+  }
+
+  return { languages, keys }
+}
+
 function flattenObject(obj, prefix = '') {
   const result = {}
   for (const [k, v] of Object.entries(obj)) {
@@ -109,4 +179,70 @@ function flattenObject(obj, prefix = '') {
     }
   }
   return result
+}
+
+function unflattenObject(flat) {
+  const result = {}
+  for (const [dotKey, value] of Object.entries(flat)) {
+    const parts = dotKey.split('.')
+    let cur = result
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (typeof cur[parts[i]] !== 'object' || cur[parts[i]] === null) {
+        cur[parts[i]] = {}
+      }
+      cur = cur[parts[i]]
+    }
+    cur[parts[parts.length - 1]] = value
+  }
+  return result
+}
+
+function csvField(v) {
+  const s = String(v ?? '')
+  return /[,"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+}
+
+function parseCSV(text) {
+  const rows = []
+  let cur = ''
+  let inQuote = false
+  let fields = []
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inQuote) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { cur += '"'; i++ }
+        else inQuote = false
+      } else {
+        cur += c
+      }
+    } else {
+      if (c === '"') {
+        inQuote = true
+      } else if (c === ',') {
+        fields.push(cur); cur = ''
+      } else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++
+        fields.push(cur); cur = ''
+        if (fields.length > 1 || fields[0] !== '') rows.push(fields)
+        fields = []
+      } else {
+        cur += c
+      }
+    }
+  }
+  if (fields.length || cur) { fields.push(cur); rows.push(fields) }
+
+  if (!rows.length) return { languages: [], keys: {} }
+  const [header, ...dataRows] = rows
+  const langs = header.slice(1).map(l => l.trim())
+  const keys = {}
+  for (const row of dataRows) {
+    const key = row[0]?.trim()
+    if (!key) continue
+    keys[key] = {}
+    langs.forEach((lang, i) => { keys[key][lang] = row[i + 1] ?? '' })
+  }
+  return { languages: langs, keys }
 }

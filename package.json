@@ -1,6 +1,6 @@
 {
   "name": "json-i18n-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local browser-based editor for JSON translation files. Spreadsheet UI, zero dependencies.",
   "type": "module",
   "bin": {
@@ -24,7 +24,7 @@
     "nextjs"
   ],
   "license": "MIT",
-  "author": "Brayan Jeshua <info@vandaag.digital>",
+  "author": "Brayan Jeshua <info@brayanjeshua.com>",
   "engines": {
     "node": ">=18"
   },
