@@ -69,6 +69,10 @@ body {
 .btn-save { background: #22c55e; color: #fff; }
 .btn-save:hover { background: #16a34a; }
 .btn-save.saving { background: #f59e0b; pointer-events: none; }
+.btn-export { background: #6366f1; color: #fff; }
+.btn-export:hover { background: #4f46e5; }
+.btn-import { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
+.btn-import:hover { color: #f8fafc; border-color: #64748b; }
 
 /* ── STATUS BAR ── */
 .statusbar {
@@ -261,14 +265,17 @@ tr.new-row td { background: #f0fdf4 !important; }
   <div class="topbar-dir" id="dir-label">messages/</div>
   <div class="spacer"></div>
   <div class="topbar-info" id="info-label">—</div>
-  <!-- TODO(2): Export CSV button → calls exportCSV() which fetches /api/export/csv -->
-  <!-- TODO(3): Import CSV button → file input that posts to /api/import/csv -->
+  <button class="btn btn-export" onclick="exportCSV()">⬇ CSV</button>
+  <label class="btn btn-import" title="Import CSV">
+    ⬆ CSV
+    <input type="file" accept=".csv" style="display:none" onchange="importCSV(this)">
+  </label>
   <button class="btn btn-add" onclick="addKey()">＋ Add Key</button>
   <button class="btn btn-save" id="save-btn" onclick="saveAll()">Save</button>
 </div>
 
 <!-- TODO(4): search/filter bar — input that filters rows by key name or value in real-time -->
-<!-- TODO(5): missing-translations indicator — highlight td in red/amber when val is empty -->
+<!-- TODO(5): missing-translations indicator — highlight td in amber when val is empty -->
 <div class="statusbar">
   <div class="dot" id="dot"></div>
   <span id="status-msg">Ready</span>
@@ -292,18 +299,12 @@ tr.new-row td { background: #f0fdf4 !important; }
 //          Wire to an <input id="search"> in the topbar with oninput event.
 
 // TODO(5): implement markMissing() — after render() call, add class "missing" to
-//          every td containing an empty textarea, style with amber/red background.
+//          every td containing an empty textarea, style with amber background.
 //          Update count of missing strings in statusbar.
 
 // TODO(6): implement updateCompleteness() — after render(), compute per-language
 //          { total, filled } and inject language pills into statusbar.
 //          Green ≥90%, amber ≥70%, red <70%.
-
-// TODO(2): implement exportCSV() — fetch /api/export/csv and trigger download
-//          using a temporary <a download> element with a blob URL.
-
-// TODO(3): implement importCSV(file) — send file to /api/import/csv via FormData,
-//          receive merged state from server, call render(), markDirty().
 
 let state = { languages: [], keys: {}, dir: 'messages/' }
 let dirty = false
@@ -491,6 +492,39 @@ function showToast(msg, type = '') {
   t.className = `toast show ${type}`
   clearTimeout(t._timer)
   t._timer = setTimeout(() => t.className = 'toast', 2500)
+}
+
+// Feature 2: Export CSV
+function exportCSV() {
+  const a = document.createElement('a')
+  a.href = '/api/export/csv'
+  a.download = 'messages.csv'
+  a.click()
+}
+
+// Feature 3: Import CSV
+async function importCSV(input) {
+  const file = input.files[0]
+  if (!file) return
+  input.value = ''
+  setStatus('dirty', 'Importing…')
+  try {
+    const text = await file.text()
+    const r = await fetch('/api/import/csv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: text
+    })
+    const data = await r.json()
+    if (!r.ok) throw new Error(data.error || 'Import failed')
+    state = data
+    render()
+    markDirty()
+    showToast(`Imported ${Object.keys(data.keys).length} keys ✓`, 'ok')
+  } catch (e) {
+    setStatus('error', 'Import error')
+    showToast('Import failed: ' + e.message, 'err')
+  }
 }
 
 document.addEventListener('keydown', e => {
