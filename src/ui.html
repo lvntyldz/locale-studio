@@ -74,6 +74,21 @@ body {
 .btn-import { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
 .btn-import:hover { color: #f8fafc; border-color: #64748b; }
 
+/* ── SEARCH ── */
+.topbar-search {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #f8fafc;
+  font-size: 12px;
+  padding: 6px 10px;
+  width: 200px;
+  outline: none;
+  transition: border-color 0.15s, width 0.2s;
+}
+.topbar-search::placeholder { color: #64748b; }
+.topbar-search:focus { border-color: #38bdf8; width: 260px; }
+
 /* ── STATUS BAR ── */
 .statusbar {
   background: #fff;
@@ -223,6 +238,10 @@ button.del-btn {
 }
 button.del-btn:hover { color: #ef4444; background: #fee2e2; }
 
+/* ── MISSING TRANSLATION ── */
+td.missing { background: #fef3c7 !important; }
+tr:hover td.missing { background: #fde68a !important; }
+
 /* ── EMPTY STATE ── */
 .empty {
   padding: 80px 20px;
@@ -256,6 +275,20 @@ button.del-btn:hover { color: #ef4444; background: #fee2e2; }
 
 /* ── ADD ROW HIGHLIGHT ── */
 tr.new-row td { background: #f0fdf4 !important; }
+
+/* ── COMPLETENESS PILLS ── */
+.pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-right: 6px;
+  letter-spacing: 0.03em;
+}
+.pill-green  { background: #dcfce7; color: #166534; }
+.pill-amber  { background: #fef3c7; color: #92400e; }
+.pill-red    { background: #fee2e2; color: #991b1b; }
 </style>
 </head>
 <body>
@@ -263,6 +296,10 @@ tr.new-row td { background: #f0fdf4 !important; }
 <div class="topbar">
   <div class="topbar-logo">json-i18n<span>-editor</span></div>
   <div class="topbar-dir" id="dir-label">messages/</div>
+  <input id="search" class="topbar-search" type="text"
+    placeholder="🔍 Filter keys or values…"
+    oninput="filterKeys(this.value)"
+    onkeydown="if(event.key==='Escape'){this.value='';filterKeys('');this.blur()}" />
   <div class="spacer"></div>
   <div class="topbar-info" id="info-label">—</div>
   <button class="btn btn-export" onclick="exportCSV()">⬇ CSV</button>
@@ -274,14 +311,14 @@ tr.new-row td { background: #f0fdf4 !important; }
   <button class="btn btn-save" id="save-btn" onclick="saveAll()">Save</button>
 </div>
 
-<!-- TODO(4): search/filter bar — input that filters rows by key name or value in real-time -->
-<!-- TODO(5): missing-translations indicator — highlight td in amber when val is empty -->
 <div class="statusbar">
   <div class="dot" id="dot"></div>
   <span id="status-msg">Ready</span>
   <span style="color:#cbd5e1">·</span>
   <span>Ctrl+S to save</span>
-  <!-- TODO(6): completeness pills — one badge per language showing "en: 12/14 (86%)" -->
+  <span style="color:#cbd5e1">·</span>
+  <span id="missing-count" style="display:none;color:#b45309;font-weight:600"></span>
+  <span id="completeness-pills"></span>
 </div>
 
 <div class="table-wrap">
@@ -294,17 +331,43 @@ tr.new-row td { background: #f0fdf4 !important; }
 <div class="toast" id="toast"></div>
 
 <script>
-// TODO(4): implement filterKeys(query) — hides rows where neither key nor any
-//          translation value contains the query string (case-insensitive).
-//          Wire to an <input id="search"> in the topbar with oninput event.
+// Feature 4: Filter/search — hides rows whose key or values don't match the query
+function filterKeys(query) {
+  const q = query.trim().toLowerCase()
+  document.querySelectorAll('#tbody tr[data-key]').forEach(row => {
+    const key = (row.dataset.key || '').toLowerCase()
+    const vals = Array.from(row.querySelectorAll('textarea'), ta => ta.value.toLowerCase()).join(' ')
+    row.style.display = !q || key.includes(q) || vals.includes(q) ? '' : 'none'
+  })
+}
 
-// TODO(5): implement markMissing() — after render() call, add class "missing" to
-//          every td containing an empty textarea, style with amber background.
-//          Update count of missing strings in statusbar.
+// Feature 5: Highlight empty translation cells with amber background + show count
+function markMissing() {
+  let count = 0
+  document.querySelectorAll('textarea.val-input').forEach(ta => {
+    const td = ta.closest('td')
+    if (!ta.value.trim()) { td.classList.add('missing'); count++ }
+    else td.classList.remove('missing')
+  })
+  const el = document.getElementById('missing-count')
+  if (count > 0) { el.style.display = ''; el.textContent = `⚠ ${count} missing` }
+  else el.style.display = 'none'
+}
 
-// TODO(6): implement updateCompleteness() — after render(), compute per-language
-//          { total, filled } and inject language pills into statusbar.
-//          Green ≥90%, amber ≥70%, red <70%.
+// Feature 6: Per-language completeness pills in statusbar
+function updateCompleteness() {
+  const { languages, keys } = state
+  const entries = Object.entries(keys)
+  const total = entries.length
+  if (!total) { document.getElementById('completeness-pills').innerHTML = ''; return }
+  const pills = languages.map(lang => {
+    const filled = entries.filter(([, vals]) => (vals[lang] ?? '').trim() !== '').length
+    const pct = Math.round((filled / total) * 100)
+    const cls = pct >= 90 ? 'pill-green' : pct >= 70 ? 'pill-amber' : 'pill-red'
+    return `<span class="pill ${cls}">${lang} ${filled}/${total} ${pct}%</span>`
+  })
+  document.getElementById('completeness-pills').innerHTML = pills.join('')
+}
 
 let state = { languages: [], keys: {}, dir: 'messages/' }
 let dirty = false
@@ -369,6 +432,8 @@ function render() {
   ).join('')
 
   document.querySelectorAll('textarea.val-input').forEach(autoResize)
+  markMissing()
+  updateCompleteness()
   dirty = false
   setStatus('ok', 'Ready')
 }
