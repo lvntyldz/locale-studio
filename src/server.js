@@ -1,13 +1,15 @@
 import { createServer } from 'http'
 import { readdir, readFile, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
-import { join, dirname } from 'path'
+import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { exec } from 'child_process'
+import { scan, computeAudit } from './scanner.js'
+import { resolveConfig } from './config.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-export async function startServer({ dir, port }) {
+export async function startServer({ dir, port, scanDir }) {
   if (!existsSync(dir)) {
     console.error(`\n  ❌  Directory not found: ${dir}`)
     console.error(`      Create it first or use --dir to specify the path.\n`)
@@ -123,6 +125,28 @@ export async function startServer({ dir, port }) {
       return
     }
 
+    // Feature 7: audit — cross-reference t() calls in source code against JSON keys
+    if (url.pathname === '/api/audit' && req.method === 'GET') {
+      try {
+        const cfg = await resolveConfig()
+        const root = resolve(process.cwd(), scanDir ?? cfg.scanDir)
+        if (!existsSync(root)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          return res.end(JSON.stringify({
+            error: `Scan directory not found: ${root}. Set "scanDir" in i18n.scan.json or run with --scan <dir>.`
+          }))
+        }
+        const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir: root })
+        const { languages, keys } = await loadMessages(dir)
+        const audit = computeAudit({ used, dynamicCalls, languages, keys })
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        return res.end(JSON.stringify({ ...audit, scanDir: root, filesScanned }))
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        return res.end(JSON.stringify({ error: e.message }))
+      }
+    }
+
     res.writeHead(404)
     res.end('Not found')
   })
@@ -145,7 +169,7 @@ function openBrowser(url) {
   exec(`${cmd} ${url}`)
 }
 
-async function loadMessages(dir) {
+export async function loadMessages(dir) {
   const files = (await readdir(dir)).filter(f => f.endsWith('.json')).sort()
   const languages = files.map(f => f.replace('.json', ''))
   const allKeys = new Set()
