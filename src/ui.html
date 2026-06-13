@@ -276,6 +276,66 @@ tr:hover td.missing { background: #fde68a !important; }
 /* ── ADD ROW HIGHLIGHT ── */
 tr.new-row td { background: #f0fdf4 !important; }
 
+/* ── AUDIT ── */
+.btn-audit { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; }
+.btn-audit:hover { border-color: #64748b; color: #f8fafc; }
+.audit-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 9px;
+  padding: 1px 6px;
+  line-height: 1.4;
+}
+.audit-panel {
+  background: #fff;
+  border-bottom: 2px solid #94a3b8;
+  max-height: 45vh;
+  overflow: auto;
+  padding: 14px 20px;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.audit-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.audit-head h2 { font-size: 13px; font-weight: 700; color: #334155; }
+.audit-meta { font-size: 11px; color: #94a3b8; }
+.audit-section { margin-bottom: 14px; }
+.audit-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+}
+.audit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 2px 18px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: #334155;
+}
+.audit-ref { color: #94a3b8; font-size: 11px; }
+.audit-warn { color: #b45309; font-size: 12px; padding-left: 18px; margin-bottom: 6px; }
+.audit-mini-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 1px 8px;
+  cursor: pointer;
+  color: #475569;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.audit-mini-btn:hover { background: #e0f2fe; border-color: #38bdf8; color: #0369a1; }
+.audit-mini-btn.danger:hover { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
+
 /* ── COMPLETENESS PILLS ── */
 .pill {
   display: inline-block;
@@ -302,6 +362,9 @@ tr.new-row td { background: #f0fdf4 !important; }
     onkeydown="if(event.key==='Escape'){this.value='';filterKeys('');this.blur()}" />
   <div class="spacer"></div>
   <div class="topbar-info" id="info-label">—</div>
+  <button class="btn btn-audit" onclick="toggleAudit()">🔍 Audit
+    <span class="audit-badge" id="audit-badge" style="display:none"></span>
+  </button>
   <button class="btn btn-export" onclick="exportCSV()">⬇ CSV</button>
   <label class="btn btn-import" title="Import CSV">
     ⬆ CSV
@@ -320,6 +383,8 @@ tr.new-row td { background: #f0fdf4 !important; }
   <span id="missing-count" style="display:none;color:#b45309;font-weight:600"></span>
   <span id="completeness-pills"></span>
 </div>
+
+<div class="audit-panel" id="audit-panel" style="display:none"></div>
 
 <div class="table-wrap">
   <table id="tbl">
@@ -592,11 +657,120 @@ async function importCSV(input) {
   }
 }
 
+// Feature 7: Audit — code scanner results (missing / unused / dynamic keys)
+let auditData = null
+
+async function toggleAudit() {
+  const panel = document.getElementById('audit-panel')
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return }
+  panel.style.display = ''
+  panel.innerHTML = '<div class="audit-meta">Scanning…</div>'
+  await refreshAudit()
+}
+
+async function refreshAudit({ silent = false } = {}) {
+  try {
+    const r = await fetch('/api/audit')
+    const data = await r.json()
+    if (!r.ok) throw new Error(data.error || 'Audit failed')
+    auditData = data
+  } catch (e) {
+    auditData = { error: e.message }
+  }
+  updateAuditBadge()
+  if (!silent) renderAuditPanel()
+}
+
+function updateAuditBadge() {
+  const badge = document.getElementById('audit-badge')
+  const count = auditData?.missing?.length || 0
+  badge.style.display = count ? '' : 'none'
+  badge.textContent = count
+}
+
+function renderAuditPanel() {
+  const panel = document.getElementById('audit-panel')
+  if (panel.style.display === 'none') return
+
+  if (auditData?.error) {
+    panel.innerHTML =
+      `<div class="audit-head"><h2>🔍 Audit</h2>
+        <div class="spacer"></div>
+        <button class="audit-mini-btn" onclick="toggleAudit()">✕ Close</button></div>
+      <div class="audit-warn">⚠ ${esc(auditData.error)}</div>`
+    return
+  }
+
+  const { missing, unused, dynamicCalls, scanDir, filesScanned } = auditData
+  let html =
+    `<div class="audit-head">
+      <h2>🔍 Audit</h2>
+      <span class="audit-meta">${filesScanned} files scanned in ${esc(scanDir)}</span>
+      <div class="spacer"></div>
+      <button class="audit-mini-btn" onclick="refreshAudit()">↻ Rescan</button>
+      <button class="audit-mini-btn" onclick="toggleAudit()">✕ Close</button>
+    </div>`
+
+  if (missing.length) {
+    html += `<div class="audit-section">
+      <h3>🔴 ${missing.length} key${missing.length !== 1 ? 's' : ''} used in code but missing from JSON</h3>
+      ${missing.map(({ key, refs }) =>
+        `<div class="audit-row">
+          <span>${esc(key)}</span>
+          <span class="audit-ref">${refs.map(r => `${esc(r.file)}:${r.line}`).join(', ')}</span>
+          <button class="audit-mini-btn" onclick="auditAddKey('${esc(key)}')">＋ Add</button>
+        </div>`).join('')}
+    </div>`
+  }
+
+  if (unused.length) {
+    html += `<div class="audit-section">
+      <h3>⚪ ${unused.length} key${unused.length !== 1 ? 's' : ''} in JSON never used in code</h3>
+      ${dynamicCalls.length ? `<div class="audit-warn">⚠ ${dynamicCalls.length} dynamic key call${dynamicCalls.length !== 1 ? 's' : ''} detected (${dynamicCalls.slice(0, 3).map(d => `${esc(d.file)}:${d.line}`).join(', ')}${dynamicCalls.length > 3 ? ', …' : ''}) — some of these keys may be used dynamically. Delete with care.</div>` : ''}
+      ${unused.map(key =>
+        `<div class="audit-row">
+          <span>${esc(key)}</span>
+          <button class="audit-mini-btn danger" onclick="auditDeleteKey('${esc(key)}')">× Delete</button>
+        </div>`).join('')}
+    </div>`
+  }
+
+  if (!missing.length && !unused.length) {
+    html += `<div class="audit-section"><h3>✅ Every t() call has a JSON entry and every key is used.</h3></div>`
+  }
+
+  panel.innerHTML = html
+}
+
+function auditAddKey(key) {
+  if (state.keys[key] !== undefined) return
+  state.keys = collectState()
+  state.keys[key] = Object.fromEntries(state.languages.map(l => [l, '']))
+  render()
+  markDirty()
+  auditData.missing = auditData.missing.filter(m => m.key !== key)
+  updateAuditBadge()
+  renderAuditPanel()
+  const rows = document.querySelectorAll('tr[data-key]')
+  const last = rows[rows.length - 1]
+  if (last) { last.classList.add('new-row'); last.scrollIntoView({ behavior: 'smooth', block: 'end' }) }
+  showToast(`Added "${key}" — fill it in and save`, 'ok')
+}
+
+function auditDeleteKey(key) {
+  deleteKey(key)
+  if (state.keys[key] === undefined) {
+    auditData.unused = auditData.unused.filter(k => k !== key)
+    renderAuditPanel()
+  }
+}
+
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveAll() }
 })
 
 load()
+refreshAudit({ silent: true })
 </script>
 </body>
 </html>

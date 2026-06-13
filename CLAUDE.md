@@ -5,23 +5,22 @@
 `json-i18n-editor` is a **zero-dependency, local browser-based editor** for JSON i18n files.
 No cloud, no auth, no config. Run via `npx`, edit translations in a spreadsheet UI, save back to disk.
 
-### Architecture (two files, that's it)
+### Architecture
 
 ```
-bin/cli.js      CLI entry — parses --dir / --port, calls startServer()
+bin/cli.js      CLI entry — UI mode (startServer) + `audit` subcommand (terminal-only, CI-friendly)
 src/server.js   Node HTTP server (no framework) — serves ui.html + REST API
 src/ui.html     Single-file browser app — vanilla JS, no bundler
+src/scanner.js  Code scanner — finds t("key") calls in source files, computes missing/unused
+src/config.js   Scan config resolution: i18n.scan.json → package.json field → defaults
 ```
 
 **Request flow:**
 ```
 browser  →  GET /api/messages  →  server reads *.json files, flattenObject(), returns { languages, keys, dir }
-browser  →  POST /api/save     →  server receives flat keys, writes back to *.json files
+browser  →  POST /api/save     →  server receives flat keys, unflattenObject(), writes back to *.json files
+browser  →  GET /api/audit     →  server scans source code, cross-references keys, returns { missing, unused, untranslated, dynamicCalls }
 ```
-
-**Known gap (TODO 1):** `POST /api/save` currently writes flat JSON.  
-If the source file was nested (e.g. `{ "hero": { "title": "…" } }`), it becomes flat after first save.  
-Fix: implement `unflattenObject()` and restore structure before writing.
 
 ---
 
@@ -39,14 +38,15 @@ Fix: implement `unflattenObject()` and restore structure before writing.
 
 | # | Feature | Files touched | Status |
 |---|---------|--------------|--------|
-| 1 | **Round-trip nested JSON** | `server.js` — add `unflattenObject()`, use it in `/api/save` | TODO |
-| 2 | **Export CSV** | `server.js` → `GET /api/export/csv` · `ui.html` → `exportCSV()` button | TODO |
-| 3 | **Import CSV** | `server.js` → `POST /api/import/csv` · `ui.html` → file-input + `importCSV()` | TODO |
-| 4 | **Filter/search** | `ui.html` only — search input in topbar, `filterKeys(query)` hides rows | TODO |
-| 5 | **Missing translation indicator** | `ui.html` only — amber/red highlight on empty cells, count in statusbar | TODO |
-| 6 | **Completeness per language** | `ui.html` only — pills in statusbar: `en: 12/14 (86%)`, colour-coded | TODO |
+| 1 | **Round-trip nested JSON** | `server.js` — add `unflattenObject()`, use it in `/api/save` | DONE (v0.2.0) |
+| 2 | **Export CSV** | `server.js` → `GET /api/export/csv` · `ui.html` → `exportCSV()` button | DONE (v0.2.0) |
+| 3 | **Import CSV** | `server.js` → `POST /api/import/csv` · `ui.html` → file-input + `importCSV()` | DONE (v0.2.0) |
+| 4 | **Filter/search** | `ui.html` only — search input in topbar, `filterKeys(query)` hides rows | DONE (v0.3.0) |
+| 5 | **Missing translation indicator** | `ui.html` only — amber/red highlight on empty cells, count in statusbar | DONE (v0.3.0) |
+| 6 | **Completeness per language** | `ui.html` only — pills in statusbar: `en: 12/14 (86%)`, colour-coded | DONE (v0.3.0) |
+| 7 | **Code scanner / audit** | `scanner.js` + `config.js` (new) · `server.js` → `GET /api/audit` · `ui.html` → Audit panel · `cli.js` → `audit` subcommand | DONE (v0.3.0) |
 
-Features 1-3 touch the server. Features 4-6 are pure UI (no server changes needed).
+**Backlog (not scheduled):** persist an "ignore" list for unused keys in `i18n.scan.json` · react-i18next namespaces (`ns:key`) · `--strict` flag so unused keys also fail CI.
 
 ---
 
@@ -91,6 +91,14 @@ Features 1-3 touch the server. Features 4-6 are pure UI (no server changes neede
 - Thresholds: green ≥ 90%, amber ≥ 70%, red < 70%.
 - Place after the `Ctrl+S` hint in statusbar.
 
+### 7 — Code scanner / audit
+- `scanner.js` exports `scan({ scanDir, patterns, extensions, ignore })` → `{ used: Map<key, [{file, line}]>, dynamicCalls, filesScanned }` and `computeAudit()` → `{ missing, unused, untranslated, dynamicCalls }`.
+- Default patterns cover `t(lang, "key")`, `t("key")`, `$t("key")`, `i18n.t("key")`, `translate("key")`, `'key' | translate`. The `(?<![\w$.])` lookbehind is load-bearing — without it `split(".")` / `format("2d")` match via their trailing `t(`.
+- Dynamic-key calls (`t(\`item_${i}\`)`, `t(lang, key)`) can't be resolved statically: they're reported separately so the unused list carries a "may be incomplete" warning. CSS `translate(-50%, …)` and `function t(...)` definitions are excluded from this detection.
+- Config resolution (`config.js`, first wins): `i18n.scan.json` in cwd → `"json-i18n-editor"` field in cwd's `package.json` → defaults. Paths are relative to the cwd the CLI runs from, **not** to `--dir`. `"patterns": ["auto"]` expands to the defaults; custom regexes (capture group 1 = the key) can be mixed in for project-specific helpers like `getT(lang, "key")`.
+- CLI: `json-i18n-editor audit --dir <locales> [--scan <src>]` — no browser, exit 1 if missing keys (CI gate), exit 0 otherwise. Unused/dynamic/untranslated are warnings only.
+- UI: `🔍 Audit` button in topbar (red badge = missing count, populated on load), collapsible panel above the table. `[＋ Add]` on a missing key reuses the dirty-state flow (`collectState()` + `render()` + `markDirty()`) — nothing is written to disk until the user saves. `[× Delete]` on unused reuses `deleteKey()`.
+
 ---
 
 ## Dev / test setup
@@ -104,10 +112,14 @@ echo '{ "hero": { "title": "Hola" } }' \
   > /tmp/test-i18n-editor/messages/es.json
 
 # Run the editor
-node /home/braies/projects/json-i18n-editor/bin/cli.js --dir /tmp/test-i18n-editor/messages
+node /Users/braies/dev/json-i18n-editor/bin/cli.js --dir /tmp/test-i18n-editor/messages
+
+# Run the audit (terminal-only; create some t() calls in /tmp/test-i18n-editor/src first)
+cd /tmp/test-i18n-editor && node /Users/braies/dev/json-i18n-editor/bin/cli.js audit --dir messages --scan src
 ```
 
 Open `http://localhost:3737` to verify. After save, `cat` the JSON files to confirm round-trip.
+Real-world audit smoke test: `cd /Users/braies/dev/vandaag-digital && node /Users/braies/dev/json-i18n-editor/bin/cli.js audit --dir src/i18n/locales` (uses its `i18n.scan.json`).
 
 ---
 
