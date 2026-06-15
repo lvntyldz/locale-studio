@@ -8,11 +8,12 @@ No cloud, no auth, no config. Run via `npx`, edit translations in a spreadsheet 
 ### Architecture
 
 ```
-bin/cli.js      CLI entry — UI mode (startServer) + `audit` subcommand (terminal-only, CI-friendly)
+bin/cli.js      CLI entry — UI mode (startServer) + `audit` (terminal, CI) + `init` (generate config)
 src/server.js   Node HTTP server (no framework) — serves ui.html + REST API
 src/ui.html     Single-file browser app — vanilla JS, no bundler
 src/scanner.js  Code scanner — finds t("key") calls in source files, computes missing/unused
 src/config.js   Scan config resolution: i18n.scan.json → package.json field → defaults
+src/init.js     `init` subcommand — auto-detects locales dir, framework, custom t() helpers
 ```
 
 **Request flow:**
@@ -45,8 +46,9 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 | 5 | **Missing translation indicator** | `ui.html` only — amber/red highlight on empty cells, count in statusbar | DONE (v0.3.0) |
 | 6 | **Completeness per language** | `ui.html` only — pills in statusbar: `en: 12/14 (86%)`, colour-coded | DONE (v0.3.0) |
 | 7 | **Code scanner / audit** | `scanner.js` + `config.js` (new) · `server.js` → `GET /api/audit` · `ui.html` → Audit panel · `cli.js` → `audit` subcommand | DONE (v0.3.0) |
+| 8 | **`init` — auto-generate i18n.scan.json** | `init.js` (new) · `cli.js` → `init` subcommand, `--force`, config `"dir"` field | DONE (v0.5.0) |
 
-**Backlog (not scheduled):** persist an "ignore" list for unused keys in `i18n.scan.json` · react-i18next namespaces (`ns:key`) · `--strict` flag so unused keys also fail CI.
+**Backlog (not scheduled):** persist an "ignore" list for unused keys in `i18n.scan.json` · react-i18next namespaces (`ns:key`) · `--strict` flag so unused keys also fail CI · directory-per-language layouts (`locales/<lang>/*.json`, i18next public/locales style).
 
 ---
 
@@ -96,8 +98,16 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 - Default patterns cover `t(lang, "key")`, `t("key")`, `$t("key")`, `i18n.t("key")`, `translate("key")`, `'key' | translate`. The `(?<![\w$.])` lookbehind is load-bearing — without it `split(".")` / `format("2d")` match via their trailing `t(`.
 - Dynamic-key calls (`t(\`item_${i}\`)`, `t(lang, key)`) can't be resolved statically: they're reported separately so the unused list carries a "may be incomplete" warning. CSS `translate(-50%, …)` and `function t(...)` definitions are excluded from this detection.
 - Config resolution (`config.js`, first wins): `i18n.scan.json` in cwd → `"json-i18n-editor"` field in cwd's `package.json` → defaults. Paths are relative to the cwd the CLI runs from, **not** to `--dir`. `"patterns": ["auto"]` expands to the defaults; custom regexes (capture group 1 = the key) can be mixed in for project-specific helpers like `getT(lang, "key")`.
-- CLI: `json-i18n-editor audit --dir <locales> [--scan <src>]` — no browser, exit 1 if missing keys (CI gate), exit 0 otherwise. Unused/dynamic/untranslated are warnings only.
+- CLI: `json-i18n-editor audit [--dir <locales>] [--scan <src>]` — no browser, exit 1 if missing keys (CI gate), exit 0 otherwise. Unused/dynamic/untranslated are warnings only. `--dir` falls back to the config's `"dir"` field, then `./messages`.
 - UI: `🔍 Audit` button in topbar (red badge = missing count, populated on load), collapsible panel above the table. `[＋ Add]` on a missing key reuses the dirty-state flow (`collectState()` + `render()` + `markDirty()`) — nothing is written to disk until the user saves. `[× Delete]` on unused reuses `deleteKey()`.
+
+### 8 — `init` subcommand (auto-generate i18n.scan.json, any stack)
+- `init.js` exports `runInit({ dirArg, scanArg, force })`. Refuses to overwrite an existing `i18n.scan.json` unless `--force`.
+- **Locales dir:** BFS (depth ≤ 4, skipping node_modules/dist/.next/etc.) for dirs containing valid `<lang>.json` files (`/^[a-z]{2,3}([-_][A-Za-z]{2,4})?\.json$/`). Best candidate = most lang files, then shallowest. Directory-per-language layouts are detected and reported as unsupported.
+- **Extensions:** from package.json deps markers (astro/vue/nuxt/svelte/@angular/core/react/next/preact/solid-js), union if several; no package.json or no match → defaults.
+- **Custom helper discovery (the stack-agnostic trick):** the JSON keys are ground truth. Scan for `ident("key")` / `ident(arg, "key")` / `.ident(…)` where the literal is an *existing* key. An identifier qualifies with ≥3 distinct known keys plus ≥1 not covered by auto patterns (and not in a blocklist of string/DOM/test methods). Generates the pattern with proper variant: bare vs method-style (`\.name\(`), key-first vs lang-first, `$` escaped (svelte-i18n `$_`). Verified to discover `getT` (vandaag), `tr` (vue), `$_` (svelte), `.instant` (ngx-translate), `.t` (react props), `__` (no package.json at all).
+- Writes config including `"dir"` (locales path) so `json-i18n-editor` / `audit` need no flags afterwards; prints detected setup, coverage before/after, and suggested package.json scripts.
+- `audit` prints a "run init" hint when running on pure defaults with ≥10 unused keys.
 
 ---
 

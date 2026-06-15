@@ -25,7 +25,7 @@ const CALL_SITE = /(?:(?<![\w$.])(?<!function )\$?t|i18n\.t|(?<![\w$.])(?<!funct
 export async function scan({ scanDir, patterns = ['auto'], extensions, ignore }, cwd = process.cwd()) {
   const sources = patterns.flatMap(p => p === 'auto' ? defaultPatterns : [p])
   const regexes = sources.map(p => new RegExp(p, 'g'))
-  const files = await walk(scanDir, extensions, ignore)
+  const files = await walkFiles(scanDir, extensions, ignore)
 
   const used = new Map()
   const dynamicCalls = []
@@ -78,7 +78,7 @@ export function computeAudit({ used, dynamicCalls, languages, keys }) {
   return { missing, unused, untranslated, dynamicCalls }
 }
 
-async function walk(dir, extensions, ignore, out = []) {
+export async function walkFiles(dir, extensions, ignore, out = []) {
   let entries
   try {
     entries = await readdir(dir, { withFileTypes: true })
@@ -88,7 +88,7 @@ async function walk(dir, extensions, ignore, out = []) {
   for (const e of entries) {
     const full = join(dir, e.name)
     if (ignore.some(p => full.includes(p))) continue
-    if (e.isDirectory()) await walk(full, extensions, ignore, out)
+    if (e.isDirectory()) await walkFiles(full, extensions, ignore, out)
     else if (e.isFile() && extensions.some(ext => e.name.endsWith(ext))) out.push(full)
   }
   return out
