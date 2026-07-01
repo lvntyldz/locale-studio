@@ -87,7 +87,7 @@ export async function runInit({ cwd = process.cwd(), dirArg = null, scanArg = nu
 
   // 4 — baseline scan with auto patterns, then discover custom helpers
   const ignore = defaultConfig.ignore
-  const base = await scan({ scanDir, patterns: ['auto'], extensions, ignore }, cwd)
+  const base = await scan({ scanDir, patterns: ['auto'], extensions, ignore, knownKeys }, cwd)
   const coveredKeys = new Set([...base.used.keys()].filter(k => knownKeys.has(k)))
   const discovered = await discoverPatterns({ scanDir, extensions, ignore, knownKeys, coveredKeys })
 
@@ -101,7 +101,7 @@ export async function runInit({ cwd = process.cwd(), dirArg = null, scanArg = nu
   }
   await writeFile(configPath, JSON.stringify(config, null, 2) + '\n')
 
-  const final = await scan({ ...config, scanDir }, cwd)
+  const final = await scan({ ...config, scanDir, knownKeys }, cwd)
   const usedKnown = [...final.used.keys()].filter(k => knownKeys.has(k)).length
 
   console.log(`\n  json-i18n-editor init`)

@@ -4,12 +4,61 @@ import { existsSync } from 'fs'
 import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { exec } from 'child_process'
+import { createHash, randomBytes, timingSafeEqual } from 'crypto'
+import { networkInterfaces } from 'os'
 import { scan, computeAudit } from './scanner.js'
 import { resolveConfig } from './config.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-export async function startServer({ dir, port, scanDir }) {
+// Feature 9: password protection for online/production use.
+// Sessions are in-memory tokens (restart = re-login). sha256 both sides so
+// timingSafeEqual always gets equal-length buffers.
+const sha256 = s => createHash('sha256').update(String(s)).digest()
+
+const LOGIN_HTML = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>json-i18n-editor — login</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: #f1f5f9; color: #1e293b; display: flex; align-items: center;
+         justify-content: center; min-height: 100vh; margin: 0; }
+  .card { background: #0f172a; color: #f8fafc; padding: 2rem 2.5rem; border-radius: 12px;
+          box-shadow: 0 10px 30px rgba(15,23,42,.25); width: 300px; }
+  .card h1 { font-size: 1.05rem; margin: 0 0 .25rem; }
+  .card h1 span { color: #38bdf8; }
+  .card p { color: #64748b; font-size: .8rem; margin: 0 0 1.25rem; }
+  input { width: 100%; box-sizing: border-box; padding: .6rem .75rem; border-radius: 8px;
+          border: 1px solid #334155; background: #1e293b; color: #f8fafc; font-size: .9rem; }
+  input:focus { outline: 2px solid #38bdf8; border-color: transparent; }
+  button { width: 100%; margin-top: .75rem; padding: .6rem; border: 0; border-radius: 8px;
+           background: #38bdf8; color: #0f172a; font-weight: 600; font-size: .9rem; cursor: pointer; }
+  button:hover { background: #7dd3fc; }
+  .err { color: #f87171; font-size: .8rem; min-height: 1.1rem; margin: .5rem 0 0; }
+</style></head><body>
+<form class="card" id="f">
+  <h1>json-<span>i18n</span>-editor</h1>
+  <p>This editor is password-protected.</p>
+  <input type="password" id="pw" placeholder="Password" autofocus autocomplete="current-password">
+  <button type="submit">Unlock</button>
+  <p class="err" id="err"></p>
+</form>
+<script>
+  document.getElementById('f').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const err = document.getElementById('err')
+    err.textContent = ''
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: document.getElementById('pw').value })
+    })
+    if (r.ok) location.reload()
+    else err.textContent = 'Wrong password, try again.'
+  })
+</script></body></html>`
+
+export async function startServer({ dir, port, scanDir, password }) {
   if (!existsSync(dir)) {
     console.error(`\n  ❌  Directory not found: ${dir}`)
     console.error(`      Create it first or use --dir to specify the path.\n`)
@@ -17,9 +66,49 @@ export async function startServer({ dir, port, scanDir }) {
   }
 
   const uiHtml = await readFile(join(__dirname, 'ui.html'), 'utf8')
+  const sessions = new Set()
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${port}`)
+
+    if (password) {
+      const m = (req.headers.cookie || '').match(/(?:^|;\s*)i18n_session=([a-f0-9]{64})/)
+      const authed = m && sessions.has(m[1])
+
+      if (!authed) {
+        if (url.pathname === '/api/login' && req.method === 'POST') {
+          let body = ''
+          req.on('data', d => { body += d; if (body.length > 4096) req.destroy() })
+          req.on('end', async () => {
+            let ok = false
+            try {
+              const attempt = JSON.parse(body).password
+              ok = typeof attempt === 'string' && timingSafeEqual(sha256(attempt), sha256(password))
+            } catch {}
+            if (!ok) {
+              await new Promise(r => setTimeout(r, 800)) // slow down brute force
+              res.writeHead(401, { 'Content-Type': 'application/json' })
+              return res.end(JSON.stringify({ error: 'Wrong password' }))
+            }
+            const token = randomBytes(32).toString('hex')
+            sessions.add(token)
+            if (sessions.size > 100) sessions.delete(sessions.values().next().value) // oldest out
+            res.writeHead(200, {
+              'Content-Type': 'application/json',
+              'Set-Cookie': `i18n_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400`
+            })
+            return res.end(JSON.stringify({ ok: true }))
+          })
+          return
+        }
+        if (url.pathname === '/' || url.pathname === '/index.html') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+          return res.end(LOGIN_HTML)
+        }
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        return res.end(JSON.stringify({ error: 'Authentication required' }))
+      }
+    }
 
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
@@ -136,8 +225,8 @@ export async function startServer({ dir, port, scanDir }) {
             error: `Scan directory not found: ${root}. Set "scanDir" in i18n.scan.json or run with --scan <dir>.`
           }))
         }
-        const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir: root })
         const { languages, keys } = await loadMessages(dir)
+        const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir: root, knownKeys: new Set(Object.keys(keys)) })
         const audit = computeAudit({ used, dynamicCalls, languages, keys })
         res.writeHead(200, { 'Content-Type': 'application/json' })
         return res.end(JSON.stringify({ ...audit, scanDir: root, filesScanned }))
@@ -156,10 +245,22 @@ export async function startServer({ dir, port, scanDir }) {
     console.log(`\n  json-i18n-editor`)
     console.log(`  ─────────────────────────────────`)
     console.log(`  Local:   \x1b[36m${url}\x1b[0m`)
+    if (password) {
+      for (const ip of externalIPs()) {
+        console.log(`  Network: \x1b[36mhttp://${ip}:${port}\x1b[0m`)
+      }
+      console.log(`  Auth:    \x1b[32mpassword required\x1b[0m (plain HTTP — use behind a reverse proxy for sensitive data)`)
+    }
     console.log(`  Dir:     \x1b[33m${dir}\x1b[0m`)
     console.log(`  Press \x1b[1mCtrl+C\x1b[0m to stop\n`)
-    openBrowser(url)
+    if (!password) openBrowser(url)
   })
+}
+
+function externalIPs() {
+  return Object.values(networkInterfaces()).flat()
+    .filter(i => i && i.family === 'IPv4' && !i.internal)
+    .map(i => i.address)
 }
 
 function openBrowser(url) {

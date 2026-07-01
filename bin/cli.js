@@ -26,11 +26,14 @@ if (args.includes('--help') || args.includes('-h') || !COMMANDS.includes(command
     npx json-i18n-editor init [options]     Detect project setup, write i18n.scan.json
 
   Options:
-    --dir <path>    Path to messages folder (default: "dir" from config, else ./messages)
-    --port <port>   Port to listen on (default: 3737, UI mode only)
-    --scan <path>   Source dir to scan for t() calls (default: from config or ./src)
-    --force         init only: overwrite an existing i18n.scan.json
-    --help          Show this help
+    --dir <path>        Path to messages folder (default: "dir" from config, else ./messages)
+    --port <port>       Port to listen on (default: 3737, UI mode only)
+    --scan <path>       Source dir to scan for t() calls (default: from config or ./src)
+    --password <pass>   Require a password to open the editor (UI mode only).
+                        Also read from the JSON_I18N_PASSWORD env var.
+                        Use this to run the editor online (VPS, staging box, LAN).
+    --force             init only: overwrite an existing i18n.scan.json
+    --help              Show this help
 
   Audit exit codes:
     0  no missing keys
@@ -48,6 +51,7 @@ if (args.includes('--help') || args.includes('-h') || !COMMANDS.includes(command
     npx json-i18n-editor
     npx json-i18n-editor audit
     npx json-i18n-editor audit --dir ./src/i18n/locales --scan ./src
+    npx json-i18n-editor --password mysecret --port 8080
   `)
   process.exit(!COMMANDS.includes(command) ? 1 : 0)
 }
@@ -57,13 +61,14 @@ const dirArg = getArg('--dir', null)
 const dir = resolve(process.cwd(), dirArg ?? cfg.dir ?? 'messages')
 const port = parseInt(getArg('--port', '3737'), 10)
 const scanArg = getArg('--scan', null)
+const password = getArg('--password', process.env.JSON_I18N_PASSWORD || null)
 
 if (command === 'audit') {
   await runAudit()
 } else if (command === 'init') {
   await runInit({ dirArg, scanArg, force: args.includes('--force') })
 } else {
-  startServer({ dir, port, scanDir: scanArg })
+  startServer({ dir, port, scanDir: scanArg, password })
 }
 
 async function runAudit() {
@@ -79,8 +84,8 @@ async function runAudit() {
     process.exit(1)
   }
 
-  const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir })
   const { languages, keys } = await loadMessages(dir)
+  const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir, knownKeys: new Set(Object.keys(keys)) })
   const { missing, unused, untranslated } = computeAudit({ used, dynamicCalls, languages, keys })
 
   console.log(`\n  json-i18n-editor audit`)

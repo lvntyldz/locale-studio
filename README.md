@@ -4,6 +4,7 @@ A local browser-based editor and auditor for your JSON translation files. No clo
 
 - **Edit** — spreadsheet-style UI: rows = keys, columns = languages. Inline editing, search, CSV import/export, missing-translation highlights, per-language completeness.
 - **Audit** — scans your source code for translation calls and cross-references them against your JSON files: keys used in code but missing from JSON (the ones that silently break your UI), and keys in JSON never used in code. Works with any framework.
+- **Online mode** — run it on a server with `--password` and edit translations from anywhere: login screen, session cookies, no extra setup.
 
 ## Quick start
 
@@ -58,6 +59,29 @@ locales/
 Exit code 1 when keys are missing, 0 otherwise — drop `audit:i18n` into CI to block deploys with broken translations.
 
 Recognized out of the box: `t("key")`, `t(lang, "key")`, `$t("key")` (Vue/Nuxt), `i18n.t("key")`, `translate("key")`, `'key' | translate` (Angular). Keys built dynamically (`` t(`item_${i}`) ``) can't be resolved statically; they're counted and reported.
+
+**Namespace wrappers** are resolved automatically. If a file defines a local helper that prefixes a namespace —
+
+```ts
+const t = (key: string) => translation(`LOGIN.${key}`)   // template literal
+const tc = (key: string) => translation("COMMON." + key) // string concat, useCallback(...) too
+```
+
+— then `t("USERNAME")` is correctly audited as `LOGIN.USERNAME`, not `USERNAME`. A wrapper is trusted only when its namespace exists in your JSON files or its inner function is provably i18n (`t`, `translate`, or aliased from `useTranslation()`/`useI18n()`), so lookalike functions never produce false positives.
+
+## Online / production mode
+
+Run the editor on a server (VPS, staging box, LAN machine) and protect it with a password:
+
+```bash
+npx json-i18n-editor --password mysecret
+# or, keep the password out of shell history:
+JSON_I18N_PASSWORD=mysecret npx json-i18n-editor
+```
+
+Anyone opening the URL gets a login screen; every API call (read, save, import, audit) requires the session cookie. Sessions live in memory — restarting the server logs everyone out. Wrong attempts are throttled.
+
+Works with any project layout — same `--dir`/config resolution as local mode. Traffic is plain HTTP: fine for a LAN or a quick edit session, but put it behind a reverse proxy with TLS (Caddy, nginx) if translations are sensitive or the box is exposed to the internet.
 
 ## `init` — works with any stack
 
