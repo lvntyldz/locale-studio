@@ -3,7 +3,8 @@
 ## BigPicture
 
 `json-i18n-editor` is a **zero-dependency, local browser-based editor** for JSON i18n files.
-No cloud, no auth, no config. Run via `npx`, edit translations in a spreadsheet UI, save back to disk.
+No cloud, no config required. Run via `npx`, edit translations in a spreadsheet UI, save back to disk.
+Optional password protection (`--password`) for running it online (VPS/staging/LAN) — no SSL, that's a reverse proxy's job.
 
 ### Architecture
 
@@ -47,6 +48,7 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 | 6 | **Completeness per language** | `ui.html` only — pills in statusbar: `en: 12/14 (86%)`, colour-coded | DONE (v0.3.0) |
 | 7 | **Code scanner / audit** | `scanner.js` + `config.js` (new) · `server.js` → `GET /api/audit` · `ui.html` → Audit panel · `cli.js` → `audit` subcommand | DONE (v0.3.0) |
 | 8 | **`init` — auto-generate i18n.scan.json** | `init.js` (new) · `cli.js` → `init` subcommand, `--force`, config `"dir"` field | DONE (v0.5.0) |
+| 9 | **Password-protected online mode** | `server.js` → login page + session cookies · `cli.js` → `--password`, `JSON_I18N_PASSWORD` env | DONE (v0.7.0) |
 
 **Backlog (not scheduled):** persist an "ignore" list for unused keys in `i18n.scan.json` · react-i18next namespaces (`ns:key`) · `--strict` flag so unused keys also fail CI · directory-per-language layouts (`locales/<lang>/*.json`, i18next public/locales style).
 
@@ -109,6 +111,13 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 - **Custom helper discovery (the stack-agnostic trick):** the JSON keys are ground truth. Scan for `ident("key")` / `ident(arg, "key")` / `.ident(…)` where the literal is an *existing* key. An identifier qualifies with ≥3 distinct known keys plus ≥1 not covered by auto patterns (and not in a blocklist of string/DOM/test methods). Generates the pattern with proper variant: bare vs method-style (`\.name\(`), key-first vs lang-first, `$` escaped (svelte-i18n `$_`). Verified to discover `getT` (lang-first custom helper), `tr` (vue), `$_` (svelte), `.instant` (ngx-translate), `.t` (react props), `__` (no package.json at all).
 - Writes config including `"dir"` (locales path) so `json-i18n-editor` / `audit` need no flags afterwards; prints detected setup, coverage before/after, and suggested package.json scripts.
 - `audit` prints a "run init" hint when running on pure defaults with ≥10 unused keys.
+
+### 9 — Password-protected online mode
+- `--password <pass>` (or `JSON_I18N_PASSWORD` env var) gates the whole server: unauthenticated `/` serves an inline login page (`LOGIN_HTML` in `server.js`), every other route returns 401 JSON. Without the flag, behavior is byte-identical to before.
+- `POST /api/login` compares sha256 digests via `crypto.timingSafeEqual` (equal-length buffers), sleeps 800 ms on failure (brute-force throttle), caps the request body at 4 KB.
+- Sessions: random 32-byte hex tokens in an in-memory `Set` (restart = re-login), cookie `i18n_session` with `HttpOnly; SameSite=Lax; Path=/; Max-Age=86400`, capped at 100 concurrent (oldest evicted). The browser UI needs no changes — cookies ride along automatically.
+- Banner prints LAN IPs (`os.networkInterfaces`) and a plain-HTTP warning when password mode is on; the auto-open-browser is skipped (headless servers).
+- Deliberately no SSL/TLS — that's a reverse proxy's job (documented in README).
 
 ---
 
