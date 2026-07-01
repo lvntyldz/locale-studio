@@ -59,6 +59,15 @@ Exit code 1 when keys are missing, 0 otherwise — drop `audit:i18n` into CI to 
 
 Recognized out of the box: `t("key")`, `t(lang, "key")`, `$t("key")` (Vue/Nuxt), `i18n.t("key")`, `translate("key")`, `'key' | translate` (Angular). Keys built dynamically (`` t(`item_${i}`) ``) can't be resolved statically; they're counted and reported.
 
+**Namespace wrappers** are resolved automatically. If a file defines a local helper that prefixes a namespace —
+
+```ts
+const t = (key: string) => translation(`LOGIN.${key}`)   // template literal
+const tc = (key: string) => translation("COMMON." + key) // string concat, useCallback(...) too
+```
+
+— then `t("USERNAME")` is correctly audited as `LOGIN.USERNAME`, not `USERNAME`. A wrapper is trusted only when its namespace exists in your JSON files or its inner function is provably i18n (`t`, `translate`, or aliased from `useTranslation()`/`useI18n()`), so lookalike functions never produce false positives.
+
 ## `init` — works with any stack
 
 `npx json-i18n-editor init` writes `i18n.scan.json` by detecting:

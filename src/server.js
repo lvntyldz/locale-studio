@@ -136,8 +136,8 @@ export async function startServer({ dir, port, scanDir }) {
             error: `Scan directory not found: ${root}. Set "scanDir" in i18n.scan.json or run with --scan <dir>.`
           }))
         }
-        const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir: root })
         const { languages, keys } = await loadMessages(dir)
+        const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir: root, knownKeys: new Set(Object.keys(keys)) })
         const audit = computeAudit({ used, dynamicCalls, languages, keys })
         res.writeHead(200, { 'Content-Type': 'application/json' })
         return res.end(JSON.stringify({ ...audit, scanDir: root, filesScanned }))

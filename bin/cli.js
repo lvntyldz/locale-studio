@@ -79,8 +79,8 @@ async function runAudit() {
     process.exit(1)
   }
 
-  const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir })
   const { languages, keys } = await loadMessages(dir)
+  const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir, knownKeys: new Set(Object.keys(keys)) })
   const { missing, unused, untranslated } = computeAudit({ used, dynamicCalls, languages, keys })
 
   console.log(`\n  json-i18n-editor audit`)

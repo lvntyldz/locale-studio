@@ -97,6 +97,7 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 - `scanner.js` exports `scan({ scanDir, patterns, extensions, ignore })` → `{ used: Map<key, [{file, line}]>, dynamicCalls, filesScanned }` and `computeAudit()` → `{ missing, unused, untranslated, dynamicCalls }`.
 - Default patterns cover `t(lang, "key")`, `t("key")`, `$t("key")`, `i18n.t("key")`, `translate("key")`, `'key' | translate`. The `(?<![\w$.])` lookbehind is load-bearing — without it `split(".")` / `format("2d")` match via their trailing `t(`.
 - Dynamic-key calls (`t(\`item_${i}\`)`, `t(lang, key)`) can't be resolved statically: they're reported separately so the unused list carries a "may be incomplete" warning. CSS `translate(-50%, …)` and `function t(...)` definitions are excluded from this detection.
+- **Namespace wrappers** (v0.6.0): per-file helpers like `const t = (key) => translation(\`LOGIN.${key}\`)` (template-literal, `"NS." + key` concat, and `useCallback(...)` variants) are detected by `WRAPPER_DEF` and resolved in a pre-pass — `t("USERNAME")` audits as `LOGIN.USERNAME`. Anti-false-positive gate: a wrapper is only trusted if its UPPERCASE namespace exists in the JSON keys **or** its inner callee is provably i18n (`t`/`$t`/`translate`/`i18n`, or aliased via `t: name` from `useTranslation()`/`useI18n()` in the same file) — the second branch covers whole namespaces missing from JSON (a wrapper for a not-yet-translated module). `scan()` takes optional `knownKeys` for this; server, cli and init all pass it. Wrapper calls with non-literal args (`tc(variable)`) are reported as dynamic. The `(?!\s*\+)` lookahead in `KEY` stops `"NS." + key` concat prefixes being captured as keys.
 - Config resolution (`config.js`, first wins): `i18n.scan.json` in cwd → `"json-i18n-editor"` field in cwd's `package.json` → defaults. Paths are relative to the cwd the CLI runs from, **not** to `--dir`. `"patterns": ["auto"]` expands to the defaults; custom regexes (capture group 1 = the key) can be mixed in for project-specific helpers like `getT(lang, "key")`.
 - CLI: `json-i18n-editor audit [--dir <locales>] [--scan <src>]` — no browser, exit 1 if missing keys (CI gate), exit 0 otherwise. Unused/dynamic/untranslated are warnings only. `--dir` falls back to the config's `"dir"` field, then `./messages`.
 - UI: `🔍 Audit` button in topbar (red badge = missing count, populated on load), collapsible panel above the table. `[＋ Add]` on a missing key reuses the dirty-state flow (`collectState()` + `render()` + `markDirty()`) — nothing is written to disk until the user saves. `[× Delete]` on unused reuses `deleteKey()`.
@@ -105,7 +106,7 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 - `init.js` exports `runInit({ dirArg, scanArg, force })`. Refuses to overwrite an existing `i18n.scan.json` unless `--force`.
 - **Locales dir:** BFS (depth ≤ 4, skipping node_modules/dist/.next/etc.) for dirs containing valid `<lang>.json` files (`/^[a-z]{2,3}([-_][A-Za-z]{2,4})?\.json$/`). Best candidate = most lang files, then shallowest. Directory-per-language layouts are detected and reported as unsupported.
 - **Extensions:** from package.json deps markers (astro/vue/nuxt/svelte/@angular/core/react/next/preact/solid-js), union if several; no package.json or no match → defaults.
-- **Custom helper discovery (the stack-agnostic trick):** the JSON keys are ground truth. Scan for `ident("key")` / `ident(arg, "key")` / `.ident(…)` where the literal is an *existing* key. An identifier qualifies with ≥3 distinct known keys plus ≥1 not covered by auto patterns (and not in a blocklist of string/DOM/test methods). Generates the pattern with proper variant: bare vs method-style (`\.name\(`), key-first vs lang-first, `$` escaped (svelte-i18n `$_`). Verified to discover `getT` (vandaag), `tr` (vue), `$_` (svelte), `.instant` (ngx-translate), `.t` (react props), `__` (no package.json at all).
+- **Custom helper discovery (the stack-agnostic trick):** the JSON keys are ground truth. Scan for `ident("key")` / `ident(arg, "key")` / `.ident(…)` where the literal is an *existing* key. An identifier qualifies with ≥3 distinct known keys plus ≥1 not covered by auto patterns (and not in a blocklist of string/DOM/test methods). Generates the pattern with proper variant: bare vs method-style (`\.name\(`), key-first vs lang-first, `$` escaped (svelte-i18n `$_`). Verified to discover `getT` (lang-first custom helper), `tr` (vue), `$_` (svelte), `.instant` (ngx-translate), `.t` (react props), `__` (no package.json at all).
 - Writes config including `"dir"` (locales path) so `json-i18n-editor` / `audit` need no flags afterwards; prints detected setup, coverage before/after, and suggested package.json scripts.
 - `audit` prints a "run init" hint when running on pure defaults with ≥10 unused keys.
 
@@ -121,15 +122,15 @@ echo '{ "hero": { "title": "Hello", "subtitle": "World" }, "nav": { "home": "Hom
 echo '{ "hero": { "title": "Hola" } }' \
   > /tmp/test-i18n-editor/messages/es.json
 
-# Run the editor
-node /Users/braies/dev/json-i18n-editor/bin/cli.js --dir /tmp/test-i18n-editor/messages
+# Run the editor (from the repo root)
+node bin/cli.js --dir /tmp/test-i18n-editor/messages
 
 # Run the audit (terminal-only; create some t() calls in /tmp/test-i18n-editor/src first)
-cd /tmp/test-i18n-editor && node /Users/braies/dev/json-i18n-editor/bin/cli.js audit --dir messages --scan src
+cd /tmp/test-i18n-editor && node <repo-root>/bin/cli.js audit --dir messages --scan src
 ```
 
 Open `http://localhost:3737` to verify. After save, `cat` the JSON files to confirm round-trip.
-Real-world audit smoke test: `cd /Users/braies/dev/vandaag-digital && node /Users/braies/dev/json-i18n-editor/bin/cli.js audit --dir src/i18n/locales` (uses its `i18n.scan.json`).
+Real-world smoke test: run `bin/cli.js init` + `bin/cli.js audit` from the root of any real project with JSON locales (React/Vue/Angular/Svelte/Astro…) and check the missing/unused/dynamic lists against the actual code.
 
 ---
 
