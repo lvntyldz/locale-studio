@@ -49,6 +49,7 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 | 7 | **Code scanner / audit** | `scanner.js` + `config.js` (new) · `server.js` → `GET /api/audit` · `ui.html` → Audit panel · `cli.js` → `audit` subcommand | DONE (v0.3.0) |
 | 8 | **`init` — auto-generate i18n.scan.json** | `init.js` (new) · `cli.js` → `init` subcommand, `--force`, config `"dir"` field | DONE (v0.5.0) |
 | 9 | **Password-protected online mode** | `server.js` → login page + session cookies · `cli.js` → `--password`, `JSON_I18N_PASSWORD` env | DONE (v0.7.0) |
+| 10 | **White-label `--title`** | `server.js` → HTML injection in ui/login · `cli.js` → `--title`, `JSON_I18N_TITLE` env | DONE (v0.8.0) |
 
 **Backlog (not scheduled):** persist an "ignore" list for unused keys in `i18n.scan.json` · react-i18next namespaces (`ns:key`) · `--strict` flag so unused keys also fail CI · directory-per-language layouts (`locales/<lang>/*.json`, i18next public/locales style).
 
@@ -118,6 +119,10 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 - Sessions: random 32-byte hex tokens in an in-memory `Set` (restart = re-login), cookie `i18n_session` with `HttpOnly; SameSite=Lax; Path=/; Max-Age=86400`, capped at 100 concurrent (oldest evicted). The browser UI needs no changes — cookies ride along automatically.
 - Banner prints LAN IPs (`os.networkInterfaces`) and a plain-HTTP warning when password mode is on; the auto-open-browser is skipped (headless servers).
 - Deliberately no SSL/TLS — that's a reverse proxy's job (documented in README).
+- **Infra-agnostic by design**: the editor is a plain HTTP server on a port. No coupling to any proxy/container/host tech in code or docs — those choices belong to the consuming project.
+
+### 10 — White-label `--title`
+- `--title <name>` (or `JSON_I18N_TITLE` env var) replaces the product name in the page `<title>`, the topbar logo and the login card via string replacement on the loaded HTML at startup. HTML-escaped (`escapeHtml`). Without the flag, output is byte-identical.
 
 ---
 
