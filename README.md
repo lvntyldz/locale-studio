@@ -81,7 +81,15 @@ JSON_I18N_PASSWORD=mysecret npx json-i18n-editor
 
 Anyone opening the URL gets a login screen; every API call (read, save, import, audit) requires the session cookie. Sessions live in memory — restarting the server logs everyone out. Wrong attempts are throttled.
 
-Works with any project layout — same `--dir`/config resolution as local mode. Traffic is plain HTTP: fine for a LAN or a quick edit session, but put it behind a reverse proxy with TLS (Caddy, nginx) if translations are sensitive or the box is exposed to the internet.
+Works with any project layout — same `--dir`/config resolution as local mode. The editor is a plain HTTP server on a port: use it directly, or put any reverse proxy of your choice in front for TLS — it needs zero configuration to sit behind one.
+
+Brand it for a client with `--title` (or the `JSON_I18N_TITLE` env var):
+
+```bash
+npx json-i18n-editor --password mysecret --title "Acme Corp — Translations"
+```
+
+The page title, topbar and login screen show your title instead of the product name.
 
 ## `init` — works with any stack
 

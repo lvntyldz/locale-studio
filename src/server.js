@@ -58,14 +58,26 @@ const LOGIN_HTML = `<!DOCTYPE html>
   })
 </script></body></html>`
 
-export async function startServer({ dir, port, scanDir, password }) {
+export async function startServer({ dir, port, scanDir, password, title }) {
   if (!existsSync(dir)) {
     console.error(`\n  ❌  Directory not found: ${dir}`)
     console.error(`      Create it first or use --dir to specify the path.\n`)
     process.exit(1)
   }
 
-  const uiHtml = await readFile(join(__dirname, 'ui.html'), 'utf8')
+  let uiHtml = await readFile(join(__dirname, 'ui.html'), 'utf8')
+  let loginHtml = LOGIN_HTML
+  if (title) {
+    // Feature: white-label branding — replace the product name in the page
+    // title, the topbar logo and the login card with the project's own title.
+    const safe = escapeHtml(title)
+    uiHtml = uiHtml
+      .replace('<title>json-i18n-editor</title>', `<title>${safe}</title>`)
+      .replace('<div class="topbar-logo">json-i18n<span>-editor</span></div>', `<div class="topbar-logo">${safe}</div>`)
+    loginHtml = loginHtml
+      .replace('<title>json-i18n-editor — login</title>', `<title>${safe} — login</title>`)
+      .replace('<h1>json-<span>i18n</span>-editor</h1>', `<h1>${safe}</h1>`)
+  }
   const sessions = new Set()
 
   const server = createServer(async (req, res) => {
@@ -103,7 +115,7 @@ export async function startServer({ dir, port, scanDir, password }) {
         }
         if (url.pathname === '/' || url.pathname === '/index.html') {
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-          return res.end(LOGIN_HTML)
+          return res.end(loginHtml)
         }
         res.writeHead(401, { 'Content-Type': 'application/json' })
         return res.end(JSON.stringify({ error: 'Authentication required' }))
@@ -261,6 +273,12 @@ function externalIPs() {
   return Object.values(networkInterfaces()).flat()
     .filter(i => i && i.family === 'IPv4' && !i.internal)
     .map(i => i.address)
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ))
 }
 
 function openBrowser(url) {

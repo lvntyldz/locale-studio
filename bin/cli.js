@@ -32,6 +32,9 @@ if (args.includes('--help') || args.includes('-h') || !COMMANDS.includes(command
     --password <pass>   Require a password to open the editor (UI mode only).
                         Also read from the JSON_I18N_PASSWORD env var.
                         Use this to run the editor online (VPS, staging box, LAN).
+    --title <name>      White-label the UI: shown in the page title, topbar and
+                        login screen (e.g. --title "Acme Corp — Translations").
+                        Also read from the JSON_I18N_TITLE env var.
     --force             init only: overwrite an existing i18n.scan.json
     --help              Show this help
 
@@ -62,13 +65,14 @@ const dir = resolve(process.cwd(), dirArg ?? cfg.dir ?? 'messages')
 const port = parseInt(getArg('--port', '3737'), 10)
 const scanArg = getArg('--scan', null)
 const password = getArg('--password', process.env.JSON_I18N_PASSWORD || null)
+const title = getArg('--title', process.env.JSON_I18N_TITLE || null)
 
 if (command === 'audit') {
   await runAudit()
 } else if (command === 'init') {
   await runInit({ dirArg, scanArg, force: args.includes('--force') })
 } else {
-  startServer({ dir, port, scanDir: scanArg, password })
+  startServer({ dir, port, scanDir: scanArg, password, title })
 }
 
 async function runAudit() {
