@@ -119,7 +119,7 @@ browser  →  GET /api/audit     →  server scans source code, cross-references
 - Sessions: random 32-byte hex tokens in an in-memory `Set` (restart = re-login), cookie `i18n_session` with `HttpOnly; SameSite=Lax; Path=/; Max-Age=86400`, capped at 100 concurrent (oldest evicted). The browser UI needs no changes — cookies ride along automatically.
 - Banner prints LAN IPs (`os.networkInterfaces`) and a plain-HTTP warning when password mode is on; the auto-open-browser is skipped (headless servers).
 - Deliberately no SSL/TLS — that's a reverse proxy's job (documented in README).
-- **Infra-agnostic by design**: the editor is a plain HTTP server on a port. No coupling to any proxy/container/host tech in code or docs — those choices belong to the consuming project.
+- **Infra-agnostic by design**: the editor is a plain HTTP server on a port. Zero coupling to any proxy/container/host tech in code — those choices belong to the consuming project. The README may show deployment *recipes* (docker compose sidecar, live bind mount, reverse proxy options) but always as interchangeable examples, never as requirements.
 
 ### 10 — White-label `--title`
 - `--title <name>` (or `JSON_I18N_TITLE` env var) replaces the product name in the page `<title>`, the topbar logo and the login card via string replacement on the loaded HTML at startup. HTML-escaped (`escapeHtml`). Without the flag, output is byte-identical.

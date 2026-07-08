@@ -91,6 +91,36 @@ npx json-i18n-editor --password mysecret --title "Acme Corp — Translations"
 
 The page title, topbar and login screen show your title instead of the product name.
 
+### Recipe: edit production translations live (docker compose)
+
+A pattern that works with any stack whose app fetches the translation JSON at runtime (i18next-http-backend and friends): run the editor as a sidecar next to your web container, and let both share the same host folder — the one in your repo checkout.
+
+```yaml
+services:
+  web:
+    # ... your production web server, unchanged ...
+    volumes:
+      # Serve the host copy of the translations instead of the one baked
+      # into the image → edits go live on refresh, no rebuild, no redeploy.
+      - ./public/translations:/usr/share/nginx/html/translations:ro
+
+  i18n-editor:
+    image: node:20-alpine
+    working_dir: /workspace
+    command: npx -y json-i18n-editor@0.8 --title "Acme Corp — Translations"
+    environment:
+      - JSON_I18N_PASSWORD=${I18N_PASSWORD}   # from your .env
+    volumes:
+      - .:/workspace   # the repo checkout: config, sources (for audit) and translations
+    ports:
+      - "3737:3737"    # → http://your-server:3737
+    restart: always
+```
+
+That's the whole setup: translators open `http://your-server:3737`, log in, edit, hit save — the app shows the new texts on the next page load, and the files land in the repo checkout on the server (pull them back into git whenever it suits your workflow).
+
+**Want a proper domain with TLS?** Drop the `ports:` block and route the service through whatever reverse proxy you already run — the editor needs zero configuration to sit behind one. With Traefik, that's labels on the sidecar (`` Host(`translate.example.com`) `` → service port 3737); with nginx or Caddy, a one-location `proxy_pass http://i18n-editor:3737;` server block. Any proxy that can forward HTTP works — the editor doesn't know or care which one is in front.
+
 ## `init` — works with any stack
 
 `npx json-i18n-editor init` writes `i18n.scan.json` by detecting:
