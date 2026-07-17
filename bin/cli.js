@@ -18,12 +18,12 @@ function getArg(flag, def) {
 
 if (args.includes('--help') || args.includes('-h') || !COMMANDS.includes(command)) {
   console.log(`
-  json-i18n-editor — Edit your JSON translation files in a browser
+  locale-studio — Edit your JSON translation files in a browser
 
   Usage:
-    npx json-i18n-editor [options]          Open the editor UI
-    npx json-i18n-editor audit [options]    Audit keys in terminal (no browser)
-    npx json-i18n-editor init [options]     Detect project setup, write i18n.scan.json
+    npx locale-studio [options]          Open the editor UI
+    npx locale-studio audit [options]    Audit keys in terminal (no browser)
+    npx locale-studio init [options]     Detect project setup, write i18n.scan.json
 
   Options:
     --dir <path>        Path to messages folder (default: "dir" from config, else ./messages)
@@ -46,15 +46,15 @@ if (args.includes('--help') || args.includes('-h') || !COMMANDS.includes(command
   (extensions to scan), and custom translation helpers — any function called
   with ≥3 of your existing keys as string literals gets a generated pattern.
 
-  Config (first wins): i18n.scan.json in cwd, "json-i18n-editor" field in
+  Config (first wins): i18n.scan.json in cwd, "locale-studio" field in
   package.json, built-in defaults. Paths are relative to cwd.
 
   Examples:
-    npx json-i18n-editor init
-    npx json-i18n-editor
-    npx json-i18n-editor audit
-    npx json-i18n-editor audit --dir ./src/i18n/locales --scan ./src
-    npx json-i18n-editor --password mysecret --port 8080
+    npx locale-studio init
+    npx locale-studio
+    npx locale-studio audit
+    npx locale-studio audit --dir ./src/i18n/locales --scan ./src
+    npx locale-studio --password mysecret --port 8080
   `);
   process.exit(!COMMANDS.includes(command) ? 1 : 0);
 }
@@ -78,7 +78,7 @@ if (command === 'audit') {
 async function runAudit() {
   if (!existsSync(dir)) {
     console.error(`\n  ❌  Messages directory not found: ${dir}`);
-    console.error(`      Run \x1b[36mjson-i18n-editor init\x1b[0m to auto-detect it, or pass --dir <path>.\n`);
+    console.error(`      Run \x1b[36mlocale-studio init\x1b[0m to auto-detect it, or pass --dir <path>.\n`);
     process.exit(1);
   }
   const scanDir = resolve(process.cwd(), scanArg ?? cfg.scanDir);
@@ -92,7 +92,7 @@ async function runAudit() {
   const { used, dynamicCalls, filesScanned } = await scan({ ...cfg, scanDir, knownKeys: new Set(Object.keys(keys)) });
   const { missing, unused, untranslated } = computeAudit({ used, dynamicCalls, languages, keys });
 
-  console.log(`\n  json-i18n-editor audit`);
+  console.log(`\n  locale-studio audit`);
   console.log(`  ─────────────────────────────────`);
   console.log(`  Scanned ${filesScanned} files in ${scanDir}`);
   console.log(`  ${Object.keys(keys).length} keys · ${languages.join(', ')}\n`);
@@ -133,7 +133,7 @@ async function runAudit() {
 
   if (cfg.configSource === 'defaults' && unused.length >= 10) {
     console.log(`  💡  Many unused keys and no config found — if this project uses a custom`);
-    console.log(`      translation helper, run \x1b[36mjson-i18n-editor init\x1b[0m to auto-detect it.\n`);
+    console.log(`      translation helper, run \x1b[36mlocale-studio init\x1b[0m to auto-detect it.\n`);
   }
 
   process.exit(missing.length ? 1 : 0);

@@ -10,7 +10,7 @@ export const defaultConfig = {
 };
 
 // Resolution order (first wins): i18n.scan.json in cwd, then the
-// "json-i18n-editor" field in cwd's package.json, then defaults.
+// "locale-studio" field in cwd's package.json, then defaults.
 // Paths in the config are relative to the cwd the CLI runs from.
 // The optional "dir" field points at the locales folder so the CLI
 // works without --dir. configSource tells the CLI where config came from.
@@ -26,8 +26,8 @@ export async function resolveConfig(cwd = process.cwd()) {
     const pkgFile = join(cwd, 'package.json');
     if (existsSync(pkgFile)) {
       const pkg = JSON.parse(await readFile(pkgFile, 'utf8'));
-      if (pkg['json-i18n-editor']) {
-        fileCfg = pkg['json-i18n-editor'];
+      if (pkg['locale-studio']) {
+        fileCfg = pkg['locale-studio'];
         configSource = 'package.json';
       }
     }

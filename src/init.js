@@ -138,15 +138,9 @@ export async function runInit({ cwd = process.cwd(), dirArg = null, scanArg = nu
   // 1 — locales directory
   let localesDir = dirArg ? resolve(cwd, dirArg) : null;
   if (!localesDir) {
-    const { candidates, langDirLayouts } = await findLocaleDirs(cwd);
+    const { candidates } = await findLocaleDirs(cwd);
     if (!candidates.length) {
-      console.error(`\n  ❌  No locales directory found (looked for <lang>.json files like en.json, es.json).`);
-      if (langDirLayouts.length) {
-        console.error(
-          `      Found a directory-per-language layout (${relative(cwd, langDirLayouts[0])}/<lang>/*.json),`
-        );
-        console.error(`      which json-i18n-editor doesn't support yet — it needs one <lang>.json per language.`);
-      }
+      console.error(`\n  ❌  No locales directory found (looked for directories like en/, es/ containing JSON files).`);
       console.error(`      Run again with --dir <path>.\n`);
       process.exit(1);
     }
@@ -195,7 +189,7 @@ export async function runInit({ cwd = process.cwd(), dirArg = null, scanArg = nu
   const final = await scan({ ...config, scanDir, knownKeys }, cwd);
   const usedKnown = [...final.used.keys()].filter((k) => knownKeys.has(k)).length;
 
-  console.log(`\n  json-i18n-editor init`);
+  console.log(`\n  locale-studio init`);
   console.log(`  ─────────────────────────────────`);
   console.log(`  Locales:    ${relative(cwd, localesDir)}  (${languages.join(', ')} — ${knownKeys.size} keys)`);
   console.log(`  Framework:  ${frameworks.length ? frameworks.join(' + ') : 'unknown (using default extensions)'}`);
@@ -213,9 +207,9 @@ export async function runInit({ cwd = process.cwd(), dirArg = null, scanArg = nu
   );
   console.log(`\n  ✅  Wrote i18n.scan.json`);
   console.log(`\n  Suggested package.json scripts:`);
-  console.log(`      "i18n":       "json-i18n-editor"`);
-  console.log(`      "audit:i18n": "json-i18n-editor audit"`);
-  console.log(`\n  Next: run \x1b[36mjson-i18n-editor audit\x1b[0m (exit 1 on missing keys — CI-ready)\n`);
+  console.log(`      "i18n":       "locale-studio"`);
+  console.log(`      "audit:i18n": "locale-studio audit"`);
+  console.log(`\n  Next: run \x1b[36mlocale-studio audit\x1b[0m (exit 1 on missing keys — CI-ready)\n`);
 }
 
 export async function discoverPatterns({ scanDir, extensions, ignore, knownKeys, coveredKeys }) {
@@ -275,7 +269,6 @@ async function detectFrameworks(cwd) {
 
 async function findLocaleDirs(cwd, maxDepth = 4) {
   const candidates = [];
-  const langDirLayouts = [];
   const queue = [{ dir: cwd, depth: 0 }];
 
   while (queue.length) {
@@ -287,32 +280,24 @@ async function findLocaleDirs(cwd, maxDepth = 4) {
       continue;
     }
 
-    const langs = [];
-    for (const e of entries) {
-      if (!e.isFile() || !LANG_FILE.test(e.name)) continue;
-      try {
-        const data = JSON.parse(await readFile(join(dir, e.name), 'utf8'));
-        if (data && typeof data === 'object' && !Array.isArray(data)) langs.push(e.name);
-      } catch {
-        /* not valid JSON — ignore */
-      }
-    }
-    if (langs.length) candidates.push({ path: dir, depth, langs });
-
-    // Directory-per-language layout (i18next public/locales style) — detect
-    // so init can explain it's unsupported instead of finding nothing.
-    const langSubdirs = entries.filter((e) => e.isDirectory() && LANG_DIR.test(e.name));
-    if (langSubdirs.length >= 2 && !langs.length) {
-      for (const sub of langSubdirs.slice(0, 1)) {
+    const langDirs = entries.filter((e) => e.isDirectory() && LANG_DIR.test(e.name));
+    if (langDirs.length >= 1) {
+      let hasJsonInSubdirs = false;
+      const langs = [];
+      for (const sub of langDirs) {
         try {
           const inner = await readdir(join(dir, sub.name));
-          if (inner.some((f) => f.endsWith('.json'))) {
-            langDirLayouts.push(dir);
-            break;
+          const jsonFiles = inner.filter((f) => f.endsWith('.json'));
+          if (jsonFiles.length > 0) {
+            hasJsonInSubdirs = true;
+            langs.push(sub.name);
           }
         } catch {
           /* ignore */
         }
+      }
+      if (hasJsonInSubdirs) {
+        candidates.push({ path: dir, depth, langs });
       }
     }
 
@@ -326,5 +311,5 @@ async function findLocaleDirs(cwd, maxDepth = 4) {
   }
 
   candidates.sort((a, b) => b.langs.length - a.langs.length || a.depth - b.depth || a.path.localeCompare(b.path));
-  return { candidates, langDirLayouts };
+  return { candidates, langDirLayouts: [] };
 }

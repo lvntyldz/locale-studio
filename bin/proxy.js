@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const cliPath = path.resolve(__dirname, 'cli.js');
 
-// 1. Start the customized json-i18n-editor in the background
+// 1. Start the customized locale-studio in the background
 console.log('Starting Locale Studio editor...');
 const editorProcess = spawn(
   'node',
@@ -20,7 +20,7 @@ const editorProcess = spawn(
 );
 
 editorProcess.on('error', (err) => {
-  console.error('Failed to start json-i18n-editor:', err);
+  console.error('Failed to start locale-studio:', err);
 });
 
 // 2. Start a tiny ping server on port 3736 for Alt+Click integration

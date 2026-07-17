@@ -18,7 +18,7 @@ const sha256 = (s) => createHash('sha256').update(String(s)).digest();
 
 const LOGIN_HTML = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>json-i18n-editor — login</title>
+<title>locale-studio — login</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
          background: #f1f5f9; color: #1e293b; display: flex; align-items: center;
@@ -37,7 +37,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
   .err { color: #f87171; font-size: .8rem; min-height: 1.1rem; margin: .5rem 0 0; }
 </style></head><body>
 <form class="card" id="f">
-  <h1>json-<span>i18n</span>-editor</h1>
+  <h1>locale-<span>studio</span></h1>
   <p>This editor is password-protected.</p>
   <input type="password" id="pw" placeholder="Password" autofocus autocomplete="current-password">
   <button type="submit">Unlock</button>
@@ -72,14 +72,14 @@ export async function startServer({ dir, port, scanDir, password, title }) {
     // title, the topbar logo and the login card with the project's own title.
     const safe = escapeHtml(title);
     uiHtml = uiHtml
-      .replace('<title>json-i18n-editor</title>', `<title>${safe}</title>`)
+      .replace('<title>locale-studio</title>', `<title>${safe}</title>`)
       .replace(
-        '<div class="topbar-logo">json-i18n<span>-editor</span></div>',
+        '<div class="topbar-logo">locale<span>-studio</span></div>',
         `<div class="topbar-logo">${safe}</div>`
       );
     loginHtml = loginHtml
-      .replace('<title>json-i18n-editor — login</title>', `<title>${safe} — login</title>`)
-      .replace('<h1>json-<span>i18n</span>-editor</h1>', `<h1>${safe}</h1>`);
+      .replace('<title>locale-studio — login</title>', `<title>${safe} — login</title>`)
+      .replace('<h1>locale-<span>studio</span></h1>', `<h1>${safe}</h1>`);
   }
   const sessions = new Set();
 
@@ -306,7 +306,7 @@ export async function startServer({ dir, port, scanDir, password, title }) {
 
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
-    console.log(`\n  json-i18n-editor`);
+    console.log(`\n  locale-studio`);
     console.log(`  ─────────────────────────────────`);
     console.log(`  Local:   \x1b[36m${url}\x1b[0m`);
     if (password) {

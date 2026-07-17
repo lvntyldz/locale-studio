@@ -1,161 +1,115 @@
-# json-i18n-editor
+# locale-studio
 
-A local browser-based editor and auditor for your JSON translation files. No cloud, no account, zero dependencies.
+A local, browser-based editor and auditing tool for your JSON translation files. There is no cloud, no account, and zero external dependencies.
 
-- **Edit** — spreadsheet-style UI: rows = keys, columns = languages. Inline editing, search, CSV import/export, missing-translation highlights, per-language completeness.
-- **Audit** — scans your source code for translation calls and cross-references them against your JSON files: keys used in code but missing from JSON (the ones that silently break your UI), and keys in JSON never used in code. Works with any framework.
-- **Online mode** — run it on a server with `--password` and edit translations from anywhere: login screen, session cookies, no extra setup.
+- **Spreadsheet UI** — Edit inline, search/filter keys, import/export CSV, and see completeness metrics for each language.
+- **Multi-Namespace Support** — Supports translation files grouped by language folders and namespace files (e.g., `locales/en/common.json` and `locales/es/common.json`).
+- **Alt+Click Inspector** — Alt+Click on any translated text in your web application to open its key directly in the editor and copy it to the clipboard.
+- **Audit Tool** — Scans your code to find translation keys that are missing from JSON or keys in JSON that are not used in your code. Works on any framework and is ready for CI.
+- **Online Mode** — Protect the editor with a password (`--password`) to edit translations on a staging server.
 
-## Quick start
+## Quick Start
 
 ```bash
 cd your-project
-npx json-i18n-editor init     # auto-detects your setup, writes i18n.scan.json
-npx json-i18n-editor          # opens the editor UI
-npx json-i18n-editor audit    # terminal audit — exit 1 if keys are missing (CI-ready)
+npx locale-studio init     # Detects your setup and creates i18n.scan.json
+npx locale-studio          # Opens the editor in your browser
+npx locale-studio audit    # Runs the audit in your terminal (exits 1 if keys are missing)
 ```
 
-Or install as a dev dependency and add scripts:
+Or install it as a development dependency:
 
 ```json
 {
+  "devDependencies": {
+    "locale-studio": "^0.9.0"
+  },
   "scripts": {
-    "i18n": "json-i18n-editor",
-    "audit:i18n": "json-i18n-editor audit"
+    "i18n": "locale-studio",
+    "audit:i18n": "locale-studio audit"
   }
 }
 ```
 
-## The editor
+## Folder Structure
 
-1. Reads all `*.json` files from the locales directory
-2. Opens `http://localhost:3737` in your browser
-3. Edit inline, add/delete/rename keys, filter, press **Save** or `Ctrl+S`
-4. Writes back to disk preserving nested structure
-5. The **🔍 Audit** button shows scan results in-app: add a missing key with one click, delete unused ones
-
-Expected layout — one JSON file per language, flat or nested:
+Locale Studio expects your translation files to be organized by language folders and namespace files:
 
 ```
 locales/
-  en.json      { "hero": { "title": "Hello" } }
-  es.json      { "hero": { "title": "Hola" } }
+  en/
+    common.json    { "welcome": "Welcome" }
+    login.json     { "title": "Log In" }
+  es/
+    common.json    { "welcome": "Bienvenido" }
+    login.json     { "title": "Iniciar sesión" }
 ```
 
-## The audit
+In the editor UI, keys are shown as `namespace:key` (for example, `common:welcome`).
 
-`json-i18n-editor audit` scans your source files for translation calls and reports:
+## Alt+Click Inspector Integration
 
-```
-  ❌  2 missing keys (used in code, not in any JSON):
-      hero.badge    src/pages/index.astro:14
-      footer.phone  src/layouts/Layout.astro:92
+You can easily locate translation keys from your running web app in development. 
 
-  ⚠   6 unused keys (in JSON, never used in code)
-  ⚠   2 dynamic key calls — the unused list may be incomplete
-  ⚠   es: 3 untranslated keys
-```
+### React Integration
+Import the hook in your main layout or app file:
 
-Exit code 1 when keys are missing, 0 otherwise — drop `audit:i18n` into CI to block deploys with broken translations.
+```jsx
+import { useI18nInspector } from 'locale-studio/react';
 
-Recognized out of the box: `t("key")`, `t(lang, "key")`, `$t("key")` (Vue/Nuxt), `i18n.t("key")`, `translate("key")`, `'key' | translate` (Angular). Keys built dynamically (``t(`item_${i}`)``) can't be resolved statically; they're counted and reported.
-
-**Namespace wrappers** are resolved automatically. If a file defines a local helper that prefixes a namespace —
-
-```ts
-const t = (key: string) => translation(`LOGIN.${key}`); // template literal
-const tc = (key: string) => translation('COMMON.' + key); // string concat, useCallback(...) too
-```
-
-— then `t("USERNAME")` is correctly audited as `LOGIN.USERNAME`, not `USERNAME`. A wrapper is trusted only when its namespace exists in your JSON files or its inner function is provably i18n (`t`, `translate`, or aliased from `useTranslation()`/`useI18n()`), so lookalike functions never produce false positives.
-
-## Online / production mode
-
-Run the editor on a server (VPS, staging box, LAN machine) and protect it with a password:
-
-```bash
-npx json-i18n-editor --password mysecret
-# or, keep the password out of shell history:
-JSON_I18N_PASSWORD=mysecret npx json-i18n-editor
-```
-
-Anyone opening the URL gets a login screen; every API call (read, save, import, audit) requires the session cookie. Sessions live in memory — restarting the server logs everyone out. Wrong attempts are throttled.
-
-Works with any project layout — same `--dir`/config resolution as local mode. The editor is a plain HTTP server on a port: use it directly, or put any reverse proxy of your choice in front for TLS — it needs zero configuration to sit behind one.
-
-Brand it for a client with `--title` (or the `JSON_I18N_TITLE` env var):
-
-```bash
-npx json-i18n-editor --password mysecret --title "Acme Corp — Translations"
-```
-
-The page title, topbar and login screen show your title instead of the product name.
-
-### Recipe: edit production translations live (docker compose)
-
-A pattern that works with any stack whose app fetches the translation JSON at runtime (i18next-http-backend and friends): run the editor as a sidecar next to your web container, and let both share the same host folder — the one in your repo checkout.
-
-```yaml
-services:
-  web:
-    # ... your production web server, unchanged ...
-    volumes:
-      # Serve the host copy of the translations instead of the one baked
-      # into the image → edits go live on refresh, no rebuild, no redeploy.
-      - ./public/translations:/usr/share/nginx/html/translations:ro
-
-  i18n-editor:
-    image: node:20-alpine
-    working_dir: /workspace
-    command: npx -y json-i18n-editor@0.8 --title "Acme Corp — Translations"
-    environment:
-      - JSON_I18N_PASSWORD=${I18N_PASSWORD} # from your .env
-    volumes:
-      - .:/workspace # the repo checkout: config, sources (for audit) and translations
-    ports:
-      - '3737:3737' # → http://your-server:3737
-    restart: always
-```
-
-That's the whole setup: translators open `http://your-server:3737`, log in, edit, hit save — the app shows the new texts on the next page load, and the files land in the repo checkout on the server (pull them back into git whenever it suits your workflow).
-
-**Want a proper domain with TLS?** Drop the `ports:` block and route the service through whatever reverse proxy you already run — the editor needs zero configuration to sit behind one. With Traefik, that's labels on the sidecar (``Host(`translate.example.com`)`` → service port 3737); with nginx or Caddy, a one-location `proxy_pass http://i18n-editor:3737;` server block. Any proxy that can forward HTTP works — the editor doesn't know or care which one is in front.
-
-## `init` — works with any stack
-
-`npx json-i18n-editor init` writes `i18n.scan.json` by detecting:
-
-- **Your locales folder** — searches for directories of `<lang>.json` files
-- **Your framework** — package.json dependencies → which file extensions to scan
-- **Your custom helpers** — any function called with 3+ of your existing keys as string literals gets a generated pattern automatically. No framework knowledge needed: your keys are the ground truth. Discovers things like `getT(lang, "key")`, `$_("key")` (svelte-i18n), `.instant("key")` (ngx-translate), `__("key")`
-
-```json
-{
-  "dir": "src/i18n/locales",
-  "scanDir": "src",
-  "extensions": [".astro", ".ts", ".tsx"],
-  "patterns": ["auto", "(?<![\\w$.])getT\\(\\s*[\\w$.]+\\s*,\\s*[\"'`]([\\w.-]+)[\"'`]"],
-  "ignore": ["node_modules", "dist", ".git", ".test."]
+function App() {
+  // This hook is inactive in production automatically
+  useI18nInspector();
+  
+  return <YourApp />;
 }
 ```
 
-`"auto"` expands to the built-in patterns; add your own regexes (capture group 1 = the key) for anything exotic. Config can also live in a `"json-i18n-editor"` field in package.json. With `"dir"` set, no flags are needed for any command.
+### Vanilla JS Integration
+Import and initialize the client script:
+
+```js
+import { initI18nInspector } from 'locale-studio/client';
+
+if (process.env.NODE_ENV !== 'production') {
+  initI18nInspector();
+}
+```
+
+### Setup i18next PostProcessor
+Add the `devtools` postProcessor to your i18n configuration:
+
+```js
+import i18n from 'i18next';
+import { devtoolsPostProcessor } from 'locale-studio/client';
+
+i18n
+  .use(devtoolsPostProcessor)
+  .init({
+    postProcess: ['devtools'],
+    // your other options...
+  });
+```
+
+When you hold `Alt` (or `Option` on Mac) and click on any translated text on your website, Locale Studio will copy the key to your clipboard and open the editor on the exact page.
 
 ## Options
 
 ```
-json-i18n-editor [command] [options]
+locale-studio [command] [options]
 
 Commands:
   (none)   Open the editor UI
-  audit    Terminal audit, no browser — exit 1 on missing keys
-  init     Detect project setup, write i18n.scan.json
+  audit    Check translation keys in terminal (no browser)
+  init     Detect project setup and write i18n.scan.json
 
 Options:
-  --dir <path>    Locales folder (default: "dir" from config, else ./messages)
+  --dir <path>    Locales folder (default: "dir" from config, or ./messages)
   --port <port>   UI port (default: 3737)
-  --scan <path>   Source dir to scan (default: from config, else ./src)
-  --force         init only: overwrite existing i18n.scan.json
+  --scan <path>   Source code directory to scan (default: from config, or ./src)
+  --password <p>  Password for online mode
+  --title <t>     Custom title for white-labeling
+  --force         Overwrite i18n.scan.json during init
 ```
 
 ## License
