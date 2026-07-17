@@ -58,13 +58,13 @@ locales/
 
 Exit code 1 when keys are missing, 0 otherwise — drop `audit:i18n` into CI to block deploys with broken translations.
 
-Recognized out of the box: `t("key")`, `t(lang, "key")`, `$t("key")` (Vue/Nuxt), `i18n.t("key")`, `translate("key")`, `'key' | translate` (Angular). Keys built dynamically (`` t(`item_${i}`) ``) can't be resolved statically; they're counted and reported.
+Recognized out of the box: `t("key")`, `t(lang, "key")`, `$t("key")` (Vue/Nuxt), `i18n.t("key")`, `translate("key")`, `'key' | translate` (Angular). Keys built dynamically (``t(`item_${i}`)``) can't be resolved statically; they're counted and reported.
 
 **Namespace wrappers** are resolved automatically. If a file defines a local helper that prefixes a namespace —
 
 ```ts
-const t = (key: string) => translation(`LOGIN.${key}`)   // template literal
-const tc = (key: string) => translation("COMMON." + key) // string concat, useCallback(...) too
+const t = (key: string) => translation(`LOGIN.${key}`); // template literal
+const tc = (key: string) => translation('COMMON.' + key); // string concat, useCallback(...) too
 ```
 
 — then `t("USERNAME")` is correctly audited as `LOGIN.USERNAME`, not `USERNAME`. A wrapper is trusted only when its namespace exists in your JSON files or its inner function is provably i18n (`t`, `translate`, or aliased from `useTranslation()`/`useI18n()`), so lookalike functions never produce false positives.
@@ -109,17 +109,17 @@ services:
     working_dir: /workspace
     command: npx -y json-i18n-editor@0.8 --title "Acme Corp — Translations"
     environment:
-      - JSON_I18N_PASSWORD=${I18N_PASSWORD}   # from your .env
+      - JSON_I18N_PASSWORD=${I18N_PASSWORD} # from your .env
     volumes:
-      - .:/workspace   # the repo checkout: config, sources (for audit) and translations
+      - .:/workspace # the repo checkout: config, sources (for audit) and translations
     ports:
-      - "3737:3737"    # → http://your-server:3737
+      - '3737:3737' # → http://your-server:3737
     restart: always
 ```
 
 That's the whole setup: translators open `http://your-server:3737`, log in, edit, hit save — the app shows the new texts on the next page load, and the files land in the repo checkout on the server (pull them back into git whenever it suits your workflow).
 
-**Want a proper domain with TLS?** Drop the `ports:` block and route the service through whatever reverse proxy you already run — the editor needs zero configuration to sit behind one. With Traefik, that's labels on the sidecar (`` Host(`translate.example.com`) `` → service port 3737); with nginx or Caddy, a one-location `proxy_pass http://i18n-editor:3737;` server block. Any proxy that can forward HTTP works — the editor doesn't know or care which one is in front.
+**Want a proper domain with TLS?** Drop the `ports:` block and route the service through whatever reverse proxy you already run — the editor needs zero configuration to sit behind one. With Traefik, that's labels on the sidecar (``Host(`translate.example.com`)`` → service port 3737); with nginx or Caddy, a one-location `proxy_pass http://i18n-editor:3737;` server block. Any proxy that can forward HTTP works — the editor doesn't know or care which one is in front.
 
 ## `init` — works with any stack
 

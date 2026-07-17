@@ -360,6 +360,9 @@ tr.new-row td { background: #f0fdf4 !important; }
     placeholder="🔍 Filter keys or values…"
     oninput="filterKeys(this.value)"
     onkeydown="if(event.key==='Escape'){this.value='';filterKeys('');this.blur()}" />
+    <select id="ns-select" onchange="switchNamespace(this.value)" style="background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; font-size: 12px; outline: none; margin-left: 10px;">
+    <option value="all">All Namespaces</option>
+  </select>
   <div class="spacer"></div>
   <div class="topbar-info" id="info-label">—</div>
   <button class="btn btn-audit" onclick="toggleAudit()">🔍 Audit
@@ -434,69 +437,106 @@ function updateCompleteness() {
   document.getElementById('completeness-pills').innerHTML = pills.join('')
 }
 
-let state = { languages: [], keys: {}, dir: 'messages/' }
+let state = { languages: [], keys: {}, dir: 'messages/', namespaces: [] }
+let activeNamespace = null
 let dirty = false
 
 async function load() {
   try {
     const r = await fetch('/api/messages')
     state = await r.json()
+
+    const nsSelect = document.getElementById('ns-select')
+    nsSelect.innerHTML = ''
+    if (state.namespaces) {
+      if (!activeNamespace && state.namespaces.length > 0) {
+        activeNamespace = state.namespaces[0];
+      }
+      state.namespaces.forEach(ns => {
+        const opt = document.createElement('option')
+        opt.value = ns
+        opt.textContent = ns
+        nsSelect.appendChild(opt)
+      })
+    }
+
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('ns')) {
+      activeNamespace = params.get('ns')
+      nsSelect.value = activeNamespace
+    }
+    if (params.has('q')) {
+      document.getElementById('search').value = params.get('q')
+    }
+
     render()
+    if (params.has('q')) filterKeys(params.get('q'))
   } catch(e) {
     setStatus('error', 'Failed to load — is the server running?')
   }
 }
 
+function switchNamespace(ns) {
+  if (dirty) {
+    if (!confirm("You have unsaved changes! Discard them and switch?")) {
+      document.getElementById('ns-select').value = activeNamespace
+      return
+    }
+  }
+  state.keys = { ...state.keys, ...collectState() }
+  activeNamespace = ns
+  dirty = false
+  render()
+}
+
 function render() {
-  const { languages, keys, dir } = state
+  document.getElementById('dir-label').textContent = state.dir
 
-  document.getElementById('dir-label').textContent = dir
-  document.getElementById('info-label').textContent =
-    `${Object.keys(keys).length} keys · ${languages.length} language${languages.length !== 1 ? 's' : ''}`
+  const keysToRender = Object.keys(state.keys).filter(k => {
+    if (!activeNamespace) return true;
+    return k.startsWith(activeNamespace + ':');
+  })
 
-  // Header
-  document.getElementById('thead').innerHTML =
-    `<tr>
-      <th class="th-key">Key</th>
-      ${languages.map(l => `<th class="th-lang">${l}</th>`).join('')}
-      <th class="th-del"></th>
+  document.getElementById('info-label').textContent = `${keysToRender.length} keys · ${state.languages.length} langs`
+
+  let h = `<tr>
+    <th class="th-key">Key (${keysToRender.length})</th>`
+  state.languages.forEach(l => h += `<th class="th-lang">${esc(l)}</th>`)
+  h += `<th class="th-del"></th></tr>`
+  document.getElementById('thead').innerHTML = h
+
+  let b = ''
+  keysToRender.forEach(k => {
+    b += `<tr data-key="${esc(k)}">
+      <td class="td-key">
+        <div class="key-wrap">
+          <input class="key-input" type="text" value="${esc(k)}"
+            onchange="renameKey('${esc(k)}', this)"
+            oninput="markDirty()">
+        </div>
+      </td>`
+    state.languages.forEach(l => {
+      b += `<td>
+        <textarea class="val-input" data-lang="${esc(l)}"
+          oninput="autoResize(this); markDirty()">${esc(state.keys[k][l] ?? '')}</textarea>
+      </td>`
+    })
+    b += `<td><button class="btn" style="color:#ef4444;background:transparent;padding:6px;width:30px;font-size:16px" onclick="deleteKey('${esc(k)}')">×</button></td>
     </tr>`
+  })
 
-  // Rows
-  const entries = Object.entries(keys)
-  if (!entries.length) {
-    document.getElementById('tbody').innerHTML =
-      `<tr><td colspan="${languages.length + 2}">
+  if (!keysToRender.length) {
+     b = `<tr><td colspan="${state.languages.length + 2}">
         <div class="empty">
-          <h2>No translations yet</h2>
+          <h2>No translations yet in this namespace</h2>
           <p>Click "＋ Add Key" to create your first translation key.</p>
         </div>
       </td></tr>`
-    return
   }
 
-  document.getElementById('tbody').innerHTML = entries.map(([key, vals]) =>
-    `<tr data-key="${esc(key)}">
-      <td class="td-key">
-        <div class="key-wrap">
-          <input class="key-input" value="${esc(key)}"
-            onblur="renameKey('${esc(key)}', this)"
-            onkeydown="if(event.key==='Enter'){this.blur()}" />
-        </div>
-      </td>
-      ${languages.map(l =>
-        `<td>
-          <textarea class="val-input" data-lang="${esc(l)}"
-            oninput="autoResize(this); markDirty()">${esc(vals[l] ?? '')}</textarea>
-        </td>`
-      ).join('')}
-      <td class="td-del">
-        <button class="del-btn" title="Delete key" onclick="deleteKey('${esc(key)}')">×</button>
-      </td>
-    </tr>`
-  ).join('')
+  document.getElementById('tbody').innerHTML = b
 
-  document.querySelectorAll('textarea.val-input').forEach(autoResize)
+  document.querySelectorAll('textarea').forEach(autoResize)
   markMissing()
   updateCompleteness()
   dirty = false
@@ -566,7 +606,7 @@ function addKey() {
   const k = key.trim()
   if (state.keys[k] !== undefined) { showToast('Key already exists', 'err'); return }
 
-  state.keys = collectState()
+  state.keys = { ...state.keys, ...collectState() }
   state.keys[k] = Object.fromEntries(state.languages.map(l => [l, '']))
   render()
   markDirty()
@@ -583,14 +623,14 @@ function addKey() {
 
 function deleteKey(key) {
   if (!confirm(`Delete key "${key}"?\nThis cannot be undone.`)) return
-  state.keys = collectState()
+  state.keys = { ...state.keys, ...collectState() }
   delete state.keys[key]
   render()
   markDirty()
 }
 
 async function saveAll() {
-  state.keys = collectState()
+  state.keys = { ...state.keys, ...collectState() }
   const btn = document.getElementById('save-btn')
   btn.textContent = 'Saving…'
   btn.classList.add('saving')

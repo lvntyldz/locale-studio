@@ -3,8 +3,20 @@
   "version": "0.9.0",
   "description": "Local browser-based editor for JSON translation files. Spreadsheet UI, zero dependencies.",
   "type": "module",
+  "exports": {
+    ".": "./src/server.js",
+    "./client": {
+      "types": "./client.d.ts",
+      "default": "./client.js"
+    },
+    "./react": {
+      "types": "./react.d.ts",
+      "default": "./react.js"
+    }
+  },
   "bin": {
-    "json-i18n-editor": "./bin/cli.js"
+    "json-i18n-editor": "./bin/cli.js",
+    "locale-studio": "./bin/proxy.js"
   },
   "files": [
     "bin",
@@ -31,5 +43,13 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/brayanjeshua/json-i18n-editor"
+  },
+  "peerDependencies": {
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }
