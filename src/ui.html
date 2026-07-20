@@ -783,18 +783,40 @@ function renderAuditPanel() {
 }
 
 function auditAddKey(key) {
-  if (state.keys[key] !== undefined) return
+  let finalKey = key;
+  if (!finalKey.includes(':') && activeNamespace) {
+    finalKey = activeNamespace + ':' + finalKey;
+  }
+  
+  if (state.keys[finalKey] !== undefined) {
+    const row = document.querySelector(`tr[data-key="${finalKey}"]`)
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      row.classList.add('new-row')
+    }
+    return
+  }
+  
   state.keys = { ...state.keys, ...collectState() }
-  state.keys[key] = Object.fromEntries(state.languages.map(l => [l, '']))
+  state.keys[finalKey] = Object.fromEntries(state.languages.map(l => [l, '']))
   render()
   markDirty()
+  
   auditData.missing = auditData.missing.filter(m => m.key !== key)
   updateAuditBadge()
   renderAuditPanel()
-  const rows = document.querySelectorAll('tr[data-key]')
-  const last = rows[rows.length - 1]
-  if (last) { last.classList.add('new-row'); last.scrollIntoView({ behavior: 'smooth', block: 'end' }) }
-  showToast(`Added "${key}" — fill it in and save`, 'ok')
+  
+  setTimeout(() => {
+    // Escape finalKey for querySelector since it might contain dots (e.g. accentPicker.darkAccentText)
+    const safeKey = CSS.escape(finalKey)
+    const row = document.querySelector(`tr[data-key="${safeKey}"]`)
+    if (row) { 
+      row.classList.add('new-row'); 
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' }) 
+    }
+  }, 50)
+  
+  showToast(`Added "${finalKey}" — fill it in and save`, 'ok')
 }
 
 function auditDeleteKey(key) {
