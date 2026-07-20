@@ -2,6 +2,7 @@ import { createServer } from 'http';
 import { readdir, readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
+import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
@@ -65,7 +66,7 @@ export async function startServer({ dir, port, scanDir, password, title }) {
     process.exit(1);
   }
 
-  let uiHtml = await readFile(join(__dirname, 'ui.html'), 'utf8');
+  let uiHtml = await readFile(join(__dirname, 'public', 'index.html'), 'utf8');
   let loginHtml = LOGIN_HTML;
   if (title) {
     // Feature: white-label branding — replace the product name in the page
@@ -131,6 +132,31 @@ export async function startServer({ dir, port, scanDir, password, title }) {
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(uiHtml);
+    }
+
+    if (url.pathname.startsWith('/public/')) {
+      const ext = path.extname(url.pathname);
+      const mimeMap = {
+        '.css': 'text/css',
+        '.js': 'text/javascript',
+        '.svg': 'image/svg+xml',
+        '.png': 'image/png',
+        '.html': 'text/html'
+      };
+      const contentType = mimeMap[ext] || 'text/plain';
+      try {
+        const filePath = join(__dirname, url.pathname);
+        // SECURITY FIX: Prevent traversing outside the public directory
+        if (!filePath.startsWith(join(__dirname, 'public'))) {
+          throw new Error('Forbidden path');
+        }
+        const fileContent = await readFile(filePath);
+        res.writeHead(200, { 'Content-Type': contentType });
+        return res.end(fileContent);
+      } catch (e) {
+        res.writeHead(404);
+        return res.end('Not found');
+      }
     }
 
     if (url.pathname === '/api/messages' && req.method === 'GET') {

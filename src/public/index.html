@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>locale-studio</title>
+<link rel="stylesheet" href="/public/styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">locale<span>-studio</span></div>
+  <div class="topbar-dir" id="dir-label">messages/</div>
+  <input id="search" class="topbar-search" type="text"
+    placeholder="Search keys..."
+    oninput="filterKeys(this.value)"
+    onkeydown="if(event.key==='Escape'){this.value='';filterKeys('');this.blur()}" />
+    <select id="ns-select" class="topbar-select" onchange="switchNamespace(this.value)">
+    <option value="all">All Namespaces</option>
+  </select>
+  <div class="spacer"></div>
+  <div class="topbar-info" id="info-label">—</div>
+  <button class="btn btn-audit" onclick="toggleAudit()"><img src="/public/assets/audit.svg" alt="audit" class="icon" /> Audit
+    <span class="audit-badge" id="audit-badge" style="display:none"></span>
+  </button>
+  <button class="btn btn-export" onclick="exportCSV()"><img src="/public/assets/export.svg" alt="export" class="icon" /> CSV</button>
+  <label class="btn btn-import" title="Import CSV">
+    <img src="/public/assets/import.svg" alt="import" class="icon" /> CSV
+    <input type="file" accept=".csv" style="display:none" onchange="importCSV(this)">
+  </label>
+  <button class="btn btn-add" onclick="addKey()"><img src="/public/assets/add.svg" alt="add" class="icon" /> Add Key</button>
+  <button class="btn btn-save" id="save-btn" onclick="saveAll()"><img src="/public/assets/save.svg" alt="save" class="icon" /> Save</button>
+</div>
+
+<div class="statusbar">
+  <div class="dot" id="dot"></div>
+  <span id="status-msg">Ready</span>
+  <span style="color:#cbd5e1">·</span>
+  <span>Ctrl+S to save</span>
+  <span style="color:#cbd5e1">·</span>
+  <span id="missing-count" style="display:none;color:#b45309;font-weight:600"></span>
+  <span id="completeness-pills"></span>
+</div>
+
+<div class="audit-panel" id="audit-panel" style="display:none"></div>
+
+<div class="table-wrap">
+  <table id="tbl">
+    <thead id="thead"></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/public/app.js"></script>
+</body>
+</html>

@@ -1,404 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>locale-studio</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #f1f5f9;
-  color: #1e293b;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* ── TOP BAR ── */
-.topbar {
-  background: #0f172a;
-  color: #f8fafc;
-  padding: 0 20px;
-  height: 52px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-shrink: 0;
-  border-bottom: 1px solid #1e293b;
-}
-.topbar-logo {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #f8fafc;
-}
-.topbar-logo span { color: #38bdf8; }
-.topbar-dir {
-  font-size: 11px;
-  color: #64748b;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  background: #1e293b;
-  padding: 3px 8px;
-  border-radius: 4px;
-}
-.spacer { flex: 1; }
-.topbar-info {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.btn {
-  padding: 7px 16px;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: background 0.15s, transform 0.1s;
-  white-space: nowrap;
-}
-.btn:active { transform: scale(0.97); }
-.btn-add { background: #0ea5e9; color: #fff; }
-.btn-add:hover { background: #0284c7; }
-.btn-save { background: #22c55e; color: #fff; }
-.btn-save:hover { background: #16a34a; }
-.btn-save.saving { background: #f59e0b; pointer-events: none; }
-.btn-export { background: #6366f1; color: #fff; }
-.btn-export:hover { background: #4f46e5; }
-.btn-import { background: #0f172a; color: #94a3b8; border: 1px solid #334155; }
-.btn-import:hover { color: #f8fafc; border-color: #64748b; }
-
-/* ── SEARCH ── */
-.topbar-search {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  color: #f8fafc;
-  font-size: 12px;
-  padding: 6px 10px;
-  width: 200px;
-  outline: none;
-  transition: border-color 0.15s, width 0.2s;
-}
-.topbar-search::placeholder { color: #64748b; }
-.topbar-search:focus { border-color: #38bdf8; width: 260px; }
-
-/* ── STATUS BAR ── */
-.statusbar {
-  background: #fff;
-  border-bottom: 1px solid #e2e8f0;
-  padding: 6px 20px;
-  font-size: 11.5px;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-.dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: #22c55e;
-  flex-shrink: 0;
-}
-.dot.dirty { background: #f59e0b; }
-.dot.error { background: #ef4444; }
-
-/* ── TABLE ── */
-.table-wrap {
-  flex: 1;
-  overflow: auto;
-  position: relative;
-}
-
-table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 13px;
-}
-
-thead {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-}
-
-th {
-  background: #e2e8f0;
-  padding: 9px 12px;
-  text-align: left;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #475569;
-  border-right: 1px solid #cbd5e1;
-  border-bottom: 2px solid #94a3b8;
-  white-space: nowrap;
-}
-th.th-key {
-  background: #cbd5e1;
-  color: #334155;
-  position: sticky;
-  left: 0;
-  z-index: 30;
-  min-width: 200px;
-  max-width: 260px;
-}
-th.th-lang { min-width: 200px; }
-th.th-del { width: 48px; background: #e2e8f0; border-right: none; }
-
-tr:nth-child(even) td { background: #f8fafc; }
-tr:hover td { background: #f0f9ff !important; }
-tr:hover td.td-key { background: #e0f2fe !important; }
-
-td {
-  border-right: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
-  vertical-align: top;
-  padding: 0;
-}
-
-td.td-key {
-  background: #f8fafc;
-  position: sticky;
-  left: 0;
-  z-index: 10;
-  border-right: 2px solid #cbd5e1;
-}
-
-.key-wrap {
-  display: flex;
-  align-items: center;
-  padding: 0 4px 0 10px;
-  min-height: 38px;
-}
-
-input.key-input {
-  flex: 1;
-  border: none;
-  background: transparent;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 12px;
-  color: #334155;
-  padding: 8px 4px;
-  outline: none;
-  min-width: 0;
-}
-input.key-input:focus {
-  background: #fff;
-  border-radius: 4px;
-  outline: 2px solid #38bdf8;
-  padding: 6px 4px;
-}
-
-textarea.val-input {
-  display: block;
-  width: 100%;
-  min-height: 38px;
-  border: none;
-  background: transparent;
-  padding: 8px 12px;
-  font-family: inherit;
-  font-size: 13px;
-  color: #1e293b;
-  resize: none;
-  outline: none;
-  line-height: 1.5;
-  overflow: hidden;
-}
-textarea.val-input:focus {
-  background: #fefce8;
-  outline: 2px solid #38bdf8;
-  outline-offset: -2px;
-}
-
-td.td-del {
-  border-right: none;
-  text-align: center;
-  vertical-align: middle;
-  width: 48px;
-}
-button.del-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #cbd5e1;
-  font-size: 16px;
-  line-height: 1;
-  padding: 4px 6px;
-  border-radius: 4px;
-  transition: color 0.15s, background 0.15s;
-}
-button.del-btn:hover { color: #ef4444; background: #fee2e2; }
-
-/* ── MISSING TRANSLATION ── */
-td.missing { background: #fef3c7 !important; }
-tr:hover td.missing { background: #fde68a !important; }
-
-/* ── EMPTY STATE ── */
-.empty {
-  padding: 80px 20px;
-  text-align: center;
-  color: #94a3b8;
-}
-.empty h2 { font-size: 18px; margin-bottom: 8px; color: #64748b; font-weight: 600; }
-.empty p { font-size: 14px; }
-
-/* ── TOAST ── */
-.toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  background: #0f172a;
-  color: #f8fafc;
-  padding: 11px 18px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.2s, transform 0.2s;
-  pointer-events: none;
-  z-index: 100;
-}
-.toast.show { opacity: 1; transform: translateY(0); }
-.toast.ok { background: #16a34a; }
-.toast.err { background: #dc2626; }
-
-/* ── ADD ROW HIGHLIGHT ── */
-tr.new-row td { background: #f0fdf4 !important; }
-
-/* ── AUDIT ── */
-.btn-audit { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; }
-.btn-audit:hover { border-color: #64748b; color: #f8fafc; }
-.audit-badge {
-  background: #ef4444;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: 9px;
-  padding: 1px 6px;
-  line-height: 1.4;
-}
-.audit-panel {
-  background: #fff;
-  border-bottom: 2px solid #94a3b8;
-  max-height: 45vh;
-  overflow: auto;
-  padding: 14px 20px;
-  flex-shrink: 0;
-  font-size: 13px;
-}
-.audit-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.audit-head h2 { font-size: 13px; font-weight: 700; color: #334155; }
-.audit-meta { font-size: 11px; color: #94a3b8; }
-.audit-section { margin-bottom: 14px; }
-.audit-section h3 {
-  font-size: 12px;
-  font-weight: 600;
-  color: #475569;
-  margin-bottom: 6px;
-}
-.audit-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 2px 0 2px 18px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 12px;
-  color: #334155;
-}
-.audit-ref { color: #94a3b8; font-size: 11px; }
-.audit-warn { color: #b45309; font-size: 12px; padding-left: 18px; margin-bottom: 6px; }
-.audit-mini-btn {
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  border-radius: 4px;
-  font-size: 11px;
-  padding: 1px 8px;
-  cursor: pointer;
-  color: #475569;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-.audit-mini-btn:hover { background: #e0f2fe; border-color: #38bdf8; color: #0369a1; }
-.audit-mini-btn.danger:hover { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
-
-/* ── COMPLETENESS PILLS ── */
-.pill {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
-  margin-right: 6px;
-  letter-spacing: 0.03em;
-}
-.pill-green  { background: #dcfce7; color: #166534; }
-.pill-amber  { background: #fef3c7; color: #92400e; }
-.pill-red    { background: #fee2e2; color: #991b1b; }
-</style>
-</head>
-<body>
-
-<div class="topbar">
-  <div class="topbar-logo">locale<span>-studio</span></div>
-  <div class="topbar-dir" id="dir-label">messages/</div>
-  <input id="search" class="topbar-search" type="text"
-    placeholder="🔍 Filter keys or values…"
-    oninput="filterKeys(this.value)"
-    onkeydown="if(event.key==='Escape'){this.value='';filterKeys('');this.blur()}" />
-    <select id="ns-select" onchange="switchNamespace(this.value)" style="background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; font-size: 12px; outline: none; margin-left: 10px;">
-    <option value="all">All Namespaces</option>
-  </select>
-  <div class="spacer"></div>
-  <div class="topbar-info" id="info-label">—</div>
-  <button class="btn btn-audit" onclick="toggleAudit()">🔍 Audit
-    <span class="audit-badge" id="audit-badge" style="display:none"></span>
-  </button>
-  <button class="btn btn-export" onclick="exportCSV()">⬇ CSV</button>
-  <label class="btn btn-import" title="Import CSV">
-    ⬆ CSV
-    <input type="file" accept=".csv" style="display:none" onchange="importCSV(this)">
-  </label>
-  <button class="btn btn-add" onclick="addKey()">＋ Add Key</button>
-  <button class="btn btn-save" id="save-btn" onclick="saveAll()">Save</button>
-</div>
-
-<div class="statusbar">
-  <div class="dot" id="dot"></div>
-  <span id="status-msg">Ready</span>
-  <span style="color:#cbd5e1">·</span>
-  <span>Ctrl+S to save</span>
-  <span style="color:#cbd5e1">·</span>
-  <span id="missing-count" style="display:none;color:#b45309;font-weight:600"></span>
-  <span id="completeness-pills"></span>
-</div>
-
-<div class="audit-panel" id="audit-panel" style="display:none"></div>
-
-<div class="table-wrap">
-  <table id="tbl">
-    <thead id="thead"></thead>
-    <tbody id="tbody"></tbody>
-  </table>
-</div>
-
-<div class="toast" id="toast"></div>
-
-<script>
 // Feature 4: Filter/search — hides rows whose key or values don't match the query
 function filterKeys(query) {
   const q = query.trim().toLowerCase()
@@ -747,52 +346,60 @@ function updateAuditBadge() {
 function renderAuditPanel() {
   const panel = document.getElementById('audit-panel')
   if (panel.style.display === 'none') return
-
-  if (auditData?.error) {
-    panel.innerHTML =
-      `<div class="audit-head"><h2>🔍 Audit</h2>
-        <div class="spacer"></div>
-        <button class="audit-mini-btn" onclick="toggleAudit()">✕ Close</button></div>
-      <div class="audit-warn">⚠ ${esc(auditData.error)}</div>`
+  
+  if (!auditData) {
+    panel.innerHTML = '<div class="empty">Loading audit data...</div>'
     return
   }
 
-  const { missing, unused, dynamicCalls, scanDir, filesScanned } = auditData
-  let html =
-    `<div class="audit-head">
-      <h2>🔍 Audit</h2>
-      <span class="audit-meta">${filesScanned} files scanned in ${esc(scanDir)}</span>
-      <div class="spacer"></div>
-      <button class="audit-mini-btn" onclick="refreshAudit()">↻ Rescan</button>
-      <button class="audit-mini-btn" onclick="toggleAudit()">✕ Close</button>
-    </div>`
+  const m = auditData.missing.length
+  const u = auditData.unused.length
+  let html = `<div class="audit-head">
+    <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> Audit Results</h2>
+    <div class="audit-meta">Scanned ${auditData.filesScanned} files in ${auditData.scanDir}</div>
+  </div>`
 
-  if (missing.length) {
-    html += `<div class="audit-section">
-      <h3>🔴 ${missing.length} key${missing.length !== 1 ? 's' : ''} used in code but missing from JSON</h3>
-      ${missing.map(({ key, refs }) =>
-        `<div class="audit-row">
-          <span>${esc(key)}</span>
-          <span class="audit-ref">${refs.map(r => `${esc(r.file)}:${r.line}`).join(', ')}</span>
-          <button class="audit-mini-btn" onclick="auditAddKey('${esc(key)}')">＋ Add</button>
-        </div>`).join('')}
+  if (m === 0 && u === 0) {
+    html += `<div class="empty">
+      <h2>All good!</h2>
+      <p>No missing or unused translations found.</p>
     </div>`
-  }
-
-  if (unused.length) {
-    html += `<div class="audit-section">
-      <h3>⚪ ${unused.length} key${unused.length !== 1 ? 's' : ''} in JSON never used in code</h3>
-      ${dynamicCalls.length ? `<div class="audit-warn">⚠ ${dynamicCalls.length} dynamic key call${dynamicCalls.length !== 1 ? 's' : ''} detected (${dynamicCalls.slice(0, 3).map(d => `${esc(d.file)}:${d.line}`).join(', ')}${dynamicCalls.length > 3 ? ', …' : ''}) — some of these keys may be used dynamically. Delete with care.</div>` : ''}
-      ${unused.map(key =>
-        `<div class="audit-row">
-          <span>${esc(key)}</span>
-          <button class="audit-mini-btn danger" onclick="auditDeleteKey('${esc(key)}')">× Delete</button>
-        </div>`).join('')}
-    </div>`
-  }
-
-  if (!missing.length && !unused.length) {
-    html += `<div class="audit-section"><h3>✅ Every t() call has a JSON entry and every key is used.</h3></div>`
+  } else {
+    if (m > 0) {
+      html += `<div class="audit-section">
+        <h3><span>Missing Keys</span> <span class="pill pill-amber">${m}</span></h3>`
+      auditData.missing.forEach(item => {
+        html += `<div class="audit-row">
+          <div class="audit-row-content">
+            <span class="audit-key-text">${item.key}</span>
+            <div class="audit-ref">${item.file}:${item.line}</div>
+          </div>
+          <button class="audit-mini-btn" onclick="auditAddKey('${esc(item.key)}')"><img src="/public/assets/add_dark.svg" class="icon" /> Add</button>
+        </div>`
+      })
+      html += `</div>`
+    }
+    
+    if (u > 0) {
+      html += `<div class="audit-section">
+        <h3><span>Unused Keys</span> <span class="pill pill-red">${u}</span></h3>`
+      auditData.unused.forEach(key => {
+        html += `<div class="audit-row">
+          <div class="audit-row-content">
+            <span class="audit-key-text">${key}</span>
+          </div>
+          <button class="audit-mini-btn danger" onclick="auditDeleteKey('${esc(key)}')"><img src="/public/assets/del_red.svg" class="icon" /> Delete</button>
+        </div>`
+      })
+      html += `</div>`
+    }
+    
+    if (auditData.dynamicCalls > 0) {
+      html += `<div class="audit-warn">
+        <strong>Note:</strong> Found ${auditData.dynamicCalls} dynamic t() calls (e.g. <code>t(variable)</code>). 
+        These cannot be statically analyzed.
+      </div>`
+    }
   }
 
   panel.innerHTML = html
@@ -849,6 +456,11 @@ document.addEventListener('keydown', e => {
 
 load()
 refreshAudit({ silent: true })
-</script>
-</body>
-</html>
+// Close audit panel when clicking outside
+document.addEventListener('click', (e) => {
+  const panel = document.getElementById('audit-panel');
+  const auditBtn = document.querySelector('.btn-audit');
+  if (panel.style.display !== 'none' && !panel.contains(e.target) && (!auditBtn || !auditBtn.contains(e.target))) {
+    panel.style.display = 'none';
+  }
+});
