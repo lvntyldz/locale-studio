@@ -1,6 +1,6 @@
 {
   "name": "locale-studio",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Local browser-based editor for JSON translation files. Spreadsheet UI, zero dependencies.",
   "type": "module",
   "exports": {
