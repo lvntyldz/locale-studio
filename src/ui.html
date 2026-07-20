@@ -784,7 +784,7 @@ function renderAuditPanel() {
 
 function auditAddKey(key) {
   if (state.keys[key] !== undefined) return
-  state.keys = collectState()
+  state.keys = { ...state.keys, ...collectState() }
   state.keys[key] = Object.fromEntries(state.languages.map(l => [l, '']))
   render()
   markDirty()

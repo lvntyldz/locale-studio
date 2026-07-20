@@ -151,14 +151,22 @@ export async function startServer({ dir, port, scanDir, password, title }) {
       req.on('end', async () => {
         const body = Buffer.concat(chunks).toString('utf8');
         try {
-          const { languages, keys } = JSON.parse(body);
+          const { languages, keys, namespaces } = JSON.parse(body);
           for (const lang of languages) {
             const byNs = {};
             for (const [fullKey, vals] of Object.entries(keys)) {
               if (vals[lang] !== undefined) {
-                const parts = fullKey.split(':');
-                const ns = parts[0];
-                const key = parts.slice(1).join(':');
+                const idx = fullKey.indexOf(':');
+                let ns, key;
+                if (idx === -1) {
+                  ns = (namespaces && namespaces.includes('common')) ? 'common'
+                     : ((namespaces && namespaces.includes('translation')) ? 'translation'
+                     : ((namespaces && namespaces[0]) || 'common'));
+                  key = fullKey;
+                } else {
+                  ns = fullKey.substring(0, idx);
+                  key = fullKey.substring(idx + 1);
+                }
                 if (!byNs[ns]) byNs[ns] = {};
                 byNs[ns][key] = vals[lang];
               }
