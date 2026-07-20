@@ -603,22 +603,38 @@ function renameKey(oldKey, input) {
 function addKey() {
   const key = prompt('New key name (e.g. hero_title):')
   if (!key?.trim()) return
-  const k = key.trim()
-  if (state.keys[k] !== undefined) { showToast('Key already exists', 'err'); return }
+  let finalKey = key.trim()
+  
+  if (!finalKey.includes(':') && activeNamespace) {
+    finalKey = activeNamespace + ':' + finalKey;
+  }
+  
+  if (state.keys[finalKey] !== undefined) { 
+    showToast('Key already exists', 'err')
+    const safeKey = CSS.escape(finalKey)
+    const row = document.querySelector(`tr[data-key="${safeKey}"]`)
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      row.classList.add('new-row')
+      row.querySelector('textarea')?.focus()
+    }
+    return 
+  }
 
   state.keys = { ...state.keys, ...collectState() }
-  state.keys[k] = Object.fromEntries(state.languages.map(l => [l, '']))
+  state.keys[finalKey] = Object.fromEntries(state.languages.map(l => [l, '']))
   render()
   markDirty()
 
-  // Focus first textarea of the new row
-  const rows = document.querySelectorAll('tr[data-key]')
-  const last = rows[rows.length - 1]
-  if (last) {
-    last.classList.add('new-row')
-    last.querySelector('textarea')?.focus()
-    last.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }
+  setTimeout(() => {
+    const safeKey = CSS.escape(finalKey)
+    const row = document.querySelector(`tr[data-key="${safeKey}"]`)
+    if (row) {
+      row.classList.add('new-row')
+      row.querySelector('textarea')?.focus()
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, 50)
 }
 
 function deleteKey(key) {
