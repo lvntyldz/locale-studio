@@ -3,7 +3,7 @@ import { join, relative } from 'path';
 
 // Capture group 1 is always the translation key.
 // (?!\s*\+) rejects "NS." + key string-concat prefix inside wrapper definitions.
-const KEY = `["'\`]([\\w.-]+)["'\`](?!\\s*\\+)`;
+const KEY = `["'\`]([\\w.:/-]+)["'\`](?!\\s*\\+)`;
 
 // The (?<![\w$.]) lookbehind is load-bearing: without it, `split(".")`,
 // `format("2d")` etc. match the generic t( pattern via their trailing `t(`.
