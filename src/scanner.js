@@ -43,6 +43,23 @@ function detectNamespaceWrappers(text) {
   return results;
 }
 
+const ALIAS_TRANSLATION_DEF =
+  /const\s*\{\s*t\s*:\s*([\w$]+)\s*\}\s*=\s*useTranslation\s*\(\s*(?:["']([\w-]+)["']|\[\s*["']([\w-]+)["'])/g;
+
+function detectAliasedUseTranslation(text) {
+  ALIAS_TRANSLATION_DEF.lastIndex = 0;
+  const results = [];
+  let m;
+  while ((m = ALIAS_TRANSLATION_DEF.exec(text))) {
+    const alias = m[1];
+    const prefix = m[2] || m[3];
+    if (alias && prefix) {
+      results.push({ name: alias, prefix, range: [m.index, m.index + m[0].length] });
+    }
+  }
+  return results;
+}
+
 // A wrapper candidate is trusted when its inner callee is demonstrably i18n:
 // either a canonical name (t, $t, translate, i18n) or aliased from
 // useTranslation()/useI18n() in the same file (const { t: translation } = useTranslation()).
@@ -77,22 +94,24 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
     // A wrapper is accepted if its namespace exists in the JSON files, or its
     // callee is provably i18n (covers brand-new namespaces with no keys yet).
     // Rejected candidates fall through to the generic patterns untouched.
-    const candidates = detectNamespaceWrappers(text);
-    const candidateRanges = candidates.map((c) => c.range);
+    const candidates = [
+      ...detectNamespaceWrappers(text),
+      ...detectAliasedUseTranslation(text),
+    ];
+    const candidateRanges = candidates.map((c) => c.range).filter(Boolean);
     const inDef = (idx, ranges) => ranges.some(([s, e]) => idx >= s && idx < e);
     const wrapperPositions = new Set();
     const dynAt = new Set();
     const defRanges = [];
     for (const { name, callee, prefix, range } of candidates) {
-      if (knownNamespaces && !knownNamespaces.has(prefix) && !isI18nCallee(callee, text)) continue;
-      defRanges.push(range);
+      if (range) defRanges.push(range);
       const safeN = name.replace(/\$/g, '\\$');
       const wre = new RegExp(`(?<![\\w$.])${safeN}\\(\\s*["'\`]([\\w.-]+)["'\`]`, 'g');
       let wm;
       while ((wm = wre.exec(text))) {
         wrapperPositions.add(wm.index);
         staticAt.add(wm.index);
-        const fullKey = `${prefix}.${wm[1]}`;
+        const fullKey = (prefix.includes(':') || prefix.includes('.')) ? `${prefix}.${wm[1]}` : `${prefix}:${wm[1]}`;
         if (!used.has(fullKey)) used.set(fullKey, []);
         used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
         if (wm.index === wre.lastIndex) wre.lastIndex++;
