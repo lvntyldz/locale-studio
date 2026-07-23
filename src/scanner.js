@@ -165,6 +165,17 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
         }
       }
     }
+
+    // Extract dynamic template literal prefixes (e.g. `prefix.${var}` or "prefix." + var)
+    const DYN_PREFIX_RE = /(?:`([\w.:/-]+)\.\$\{)|(?:["'` font-]*([\w.:/-]+)\.["'`]\s*\+)/g;
+    let pm;
+    while ((pm = DYN_PREFIX_RE.exec(text))) {
+      const p = pm[1] || pm[2];
+      if (p && p.length > 1) {
+        if (!used.has(`__dynamic_prefix:${p}`)) used.set(`__dynamic_prefix:${p}`, []);
+        used.get(`__dynamic_prefix:${p}`).push({ file: rel, line: lineAt(pm.index) });
+      }
+    }
   }
 
   return { used, dynamicCalls, filesScanned: files.length };
@@ -217,8 +228,13 @@ export function computeAudit({ used, dynamicCalls, languages, keys }) {
 
   const matchedJsonKeys = new Set();
   const missing = [];
+  const dynamicPrefixes = new Set();
 
   for (const [key, refs] of used) {
+    if (key.startsWith('__dynamic_prefix:')) {
+      dynamicPrefixes.add(key.slice('__dynamic_prefix:'.length));
+      continue;
+    }
     const matches = resolveKeyMatches(key, jsonKeys, knownNamespaces);
     if (matches.length > 0) {
       for (const m of matches) {
@@ -226,6 +242,46 @@ export function computeAudit({ used, dynamicCalls, languages, keys }) {
       }
     } else {
       missing.push({ key, refs });
+    }
+  }
+
+  // Dynamic prefix & leaf resolution pass for remaining JSON keys
+  if (dynamicPrefixes.size > 0 || matchedJsonKeys.size > 0) {
+    for (const k of jsonKeys) {
+      if (matchedJsonKeys.has(k)) continue;
+      const colonIdx = k.indexOf(':');
+      const ns = colonIdx !== -1 ? k.slice(0, colonIdx) : '';
+      const bareKey = colonIdx !== -1 ? k.slice(colonIdx + 1) : k;
+      const leaf = bareKey.includes('.') ? bareKey.slice(bareKey.lastIndexOf('.') + 1) : bareKey;
+
+      let isMatch = false;
+      for (const p of dynamicPrefixes) {
+        if (k.startsWith(p + '.') || bareKey.startsWith(p + '.') || k === p || bareKey === p) {
+          isMatch = true;
+          break;
+        }
+        if (p.includes(':')) {
+          const pNs = p.slice(0, p.indexOf(':'));
+          const pBare = p.slice(p.indexOf(':') + 1);
+          if (ns === pNs && (bareKey.startsWith(pBare + '.') || bareKey === pBare)) {
+            isMatch = true;
+            break;
+          }
+        }
+      }
+
+      if (!isMatch && leaf) {
+        for (const usedKey of used.keys()) {
+          if (usedKey.includes(leaf)) {
+            isMatch = true;
+            break;
+          }
+        }
+      }
+
+      if (isMatch) {
+        matchedJsonKeys.add(k);
+      }
     }
   }
 
