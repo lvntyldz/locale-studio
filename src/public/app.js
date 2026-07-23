@@ -408,41 +408,58 @@ function renderAuditPanel() {
 
 function auditAddKey(key) {
   let finalKey = key;
-  if (!finalKey.includes(':')) {
-    const defaultNs = (state.namespaces && state.namespaces.includes('common')) ? 'common'
+  let targetNs = null;
+
+  if (finalKey.includes(':')) {
+    targetNs = finalKey.split(':')[0];
+  } else {
+    targetNs = (state.namespaces && state.namespaces.includes('common')) ? 'common'
                     : ((state.namespaces && state.namespaces[0]) || 'common');
-    finalKey = defaultNs + ':' + finalKey;
+    finalKey = targetNs + ':' + finalKey;
   }
   
+  // Save current uncommitted input state
+  state.keys = { ...state.keys, ...collectState() };
+
+  // Switch active namespace if different so the target namespace is shown on screen
+  if (targetNs && state.namespaces && state.namespaces.includes(targetNs) && activeNamespace !== targetNs) {
+    activeNamespace = targetNs;
+    const nsSelect = document.getElementById('ns-select');
+    if (nsSelect) nsSelect.value = targetNs;
+  }
+
   if (state.keys[finalKey] !== undefined) {
-    const row = document.querySelector(`tr[data-key="${finalKey}"]`)
-    if (row) {
-      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      row.classList.add('new-row')
-    }
-    return
+    render();
+    setTimeout(() => {
+      const safeKey = CSS.escape(finalKey);
+      const row = document.querySelector(`tr[data-key="${safeKey}"]`);
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.add('new-row');
+      }
+    }, 50);
+    return;
   }
   
-  state.keys = { ...state.keys, ...collectState() }
-  state.keys[finalKey] = Object.fromEntries(state.languages.map(l => [l, '']))
-  render()
-  markDirty()
+  state.keys[finalKey] = Object.fromEntries(state.languages.map(l => [l, '']));
+  render();
+  markDirty();
   
-  auditData.missing = auditData.missing.filter(m => m.key !== key)
-  updateAuditBadge()
-  renderAuditPanel()
+  auditData.missing = auditData.missing.filter(m => m.key !== key);
+  updateAuditBadge();
+  renderAuditPanel();
   
   setTimeout(() => {
     // Escape finalKey for querySelector since it might contain dots (e.g. accentPicker.darkAccentText)
-    const safeKey = CSS.escape(finalKey)
-    const row = document.querySelector(`tr[data-key="${safeKey}"]`)
+    const safeKey = CSS.escape(finalKey);
+    const row = document.querySelector(`tr[data-key="${safeKey}"]`);
     if (row) { 
       row.classList.add('new-row'); 
-      row.scrollIntoView({ behavior: 'smooth', block: 'center' }) 
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
     }
-  }, 50)
+  }, 50);
   
-  showToast(`Added "${finalKey}" — fill it in and save`, 'ok')
+  showToast(`Added "${finalKey}" in ${targetNs} — fill it in and save`, 'ok');
 }
 
 function auditDeleteKey(key) {
