@@ -1,19 +1,19 @@
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { DEFAULT_CONFIG } from './constants.js';
 
 export const defaultConfig = {
-  scanDir: 'src',
-  extensions: ['.astro', '.ts', '.tsx', '.vue', '.svelte', '.js', '.jsx', '.html'],
-  patterns: ['auto'],
-  ignore: ['node_modules', 'dist', '.git', '.test.'],
+  scanDir: DEFAULT_CONFIG.SCAN_DIR,
+  extensions: [...DEFAULT_CONFIG.EXTENSIONS],
+  patterns: [...DEFAULT_CONFIG.PATTERNS],
+  ignore: [...DEFAULT_CONFIG.IGNORE],
 };
 
-// Resolution order (first wins): i18n.scan.json in cwd, then the
-// "locale-studio" field in cwd's package.json, then defaults.
-// Paths in the config are relative to the cwd the CLI runs from.
-// The optional "dir" field points at the locales folder so the CLI
-// works without --dir. configSource tells the CLI where config came from.
+/**
+ * Resolution order (first wins): i18n.scan.json in cwd, then the
+ * "locale-studio" field in cwd's package.json, then defaults.
+ */
 export async function resolveConfig(cwd = process.cwd()) {
   let fileCfg = {};
   let configSource = 'defaults';
