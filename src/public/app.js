@@ -459,6 +459,23 @@ document.addEventListener('keydown', e => {
 
 load()
 refreshAudit({ silent: true })
+function goHome() {
+  if (dirty) {
+    if (!confirm("You have unsaved changes! Discard them and return to home?")) {
+      return;
+    }
+    dirty = false;
+  }
+  window.location.href = '/';
+}
+
+window.addEventListener('beforeunload', (e) => {
+  if (dirty) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
 // Close audit panel when clicking outside
 document.addEventListener('click', (e) => {
   const panel = document.getElementById('audit-panel');
