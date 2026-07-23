@@ -132,21 +132,106 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
       if (inDef(m.index, defRanges)) continue;
       dynamicCalls.push({ file: rel, line: lineAt(m.index) });
     }
+
+    // Match string literals in source files against known translation keys
+    if (knownKeys && knownKeys.size > 0) {
+      const knownBareToFull = new Map();
+      for (const fullKey of knownKeys) {
+        if (fullKey.includes(':')) {
+          const bare = fullKey.slice(fullKey.indexOf(':') + 1);
+          if (!knownBareToFull.has(bare)) knownBareToFull.set(bare, []);
+          knownBareToFull.get(bare).push(fullKey);
+        } else {
+          if (!knownBareToFull.has(fullKey)) knownBareToFull.set(fullKey, []);
+          knownBareToFull.get(fullKey).push(fullKey);
+        }
+      }
+
+      const LITERAL_RE = /["'`]([\w.:/-]+)["'`]/g;
+      let lm;
+      while ((lm = LITERAL_RE.exec(text))) {
+        const val = lm[1];
+        if (knownKeys.has(val)) {
+          staticAt.add(lm.index);
+          if (!used.has(val)) used.set(val, []);
+          used.get(val).push({ file: rel, line: lineAt(lm.index) });
+        } else if (knownBareToFull.has(val)) {
+          staticAt.add(lm.index);
+          const fullKeys = knownBareToFull.get(val);
+          for (const fk of fullKeys) {
+            if (!used.has(fk)) used.set(fk, []);
+            used.get(fk).push({ file: rel, line: lineAt(lm.index) });
+          }
+        }
+      }
+    }
   }
 
   return { used, dynamicCalls, filesScanned: files.length };
 }
 
+const PLURAL_SUFFIXES = ['_one', '_other', '_zero', '_two', '_few', '_many', '_0', '_1', '_2'];
+
+function resolveKeyMatches(key, jsonKeys, knownNamespaces) {
+  if (jsonKeys.has(key)) {
+    return [key];
+  }
+
+  const directPlurals = PLURAL_SUFFIXES.map((suf) => key + suf).filter((k) => jsonKeys.has(k));
+  if (directPlurals.length > 0) {
+    return directPlurals;
+  }
+
+  if (!key.includes(':')) {
+    const nsMatches = [];
+    for (const ns of knownNamespaces) {
+      const nsKey = `${ns}:${key}`;
+      if (jsonKeys.has(nsKey)) {
+        nsMatches.push(nsKey);
+      }
+      for (const suf of PLURAL_SUFFIXES) {
+        const nsPluralKey = nsKey + suf;
+        if (jsonKeys.has(nsPluralKey)) {
+          nsMatches.push(nsPluralKey);
+        }
+      }
+    }
+    if (nsMatches.length > 0) {
+      return nsMatches;
+    }
+  }
+
+  return [];
+}
+
 // Cross-reference scan results against the flattened JSON keys.
 export function computeAudit({ used, dynamicCalls, languages, keys }) {
   const jsonKeys = new Set(Object.keys(keys));
+  const knownNamespaces = new Set();
+  for (const k of jsonKeys) {
+    const colonIdx = k.indexOf(':');
+    if (colonIdx !== -1) {
+      knownNamespaces.add(k.slice(0, colonIdx));
+    }
+  }
 
-  const missing = [...used]
-    .filter(([key]) => !jsonKeys.has(key))
-    .map(([key, refs]) => ({ key, refs }))
-    .sort((a, b) => a.key.localeCompare(b.key));
+  const matchedJsonKeys = new Set();
+  const missing = [];
 
-  const unused = [...jsonKeys].filter((k) => !used.has(k)).sort();
+  for (const [key, refs] of used) {
+    const matches = resolveKeyMatches(key, jsonKeys, knownNamespaces);
+    if (matches.length > 0) {
+      for (const m of matches) {
+        matchedJsonKeys.add(m);
+      }
+    } else {
+      missing.push({ key, refs });
+    }
+  }
+
+  missing.sort((a, b) => a.key.localeCompare(b.key));
+
+  const unused = [...jsonKeys].filter((k) => !matchedJsonKeys.has(k)).sort();
 
   const untranslated = {};
   for (const lang of languages) {
