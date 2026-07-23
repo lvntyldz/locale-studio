@@ -369,10 +369,11 @@ function renderAuditPanel() {
       html += `<div class="audit-section">
         <h3><span>Missing Keys</span> <span class="pill pill-amber">${m}</span></h3>`
       auditData.missing.forEach(item => {
+        const refsText = (item.refs || []).map(r => `${r.file}:${r.line}`).join(', ')
         html += `<div class="audit-row">
           <div class="audit-row-content">
             <span class="audit-key-text">${item.key}</span>
-            <div class="audit-ref">${item.file}:${item.line}</div>
+            <div class="audit-ref">${refsText}</div>
           </div>
           <button class="audit-mini-btn" onclick="auditAddKey('${esc(item.key)}')"><img src="/public/assets/add_dark.svg" class="icon" /> Add</button>
         </div>`
@@ -407,8 +408,10 @@ function renderAuditPanel() {
 
 function auditAddKey(key) {
   let finalKey = key;
-  if (!finalKey.includes(':') && activeNamespace) {
-    finalKey = activeNamespace + ':' + finalKey;
+  if (!finalKey.includes(':')) {
+    const defaultNs = (state.namespaces && state.namespaces.includes('common')) ? 'common'
+                    : ((state.namespaces && state.namespaces[0]) || 'common');
+    finalKey = defaultNs + ':' + finalKey;
   }
   
   if (state.keys[finalKey] !== undefined) {
