@@ -9,13 +9,63 @@ import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { networkInterfaces } from 'os';
 import { scan, computeAudit } from './scanner.js';
 import { resolveConfig } from './config.js';
+import {
+  HTTP_STATUS,
+  MIME_TYPES,
+  TIMINGS,
+  REGEX_PATTERNS,
+  DEFAULT_NAMESPACES,
+  API_ROUTES,
+  LIMITS,
+} from './constants.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Feature 9: password protection for online/production use.
-// Sessions are in-memory tokens (restart = re-login). sha256 both sides so
-// timingSafeEqual always gets equal-length buffers.
-const sha256 = (s) => createHash('sha256').update(String(s)).digest();
+/**
+ * SHA-256 hash helper for timing-safe password comparison.
+ */
+const sha256 = (str) => createHash('sha256').update(String(str)).digest();
+
+/**
+ * Response Helper Functions
+ */
+function sendResponse(res, statusCode, contentType, body, extraHeaders = {}) {
+  res.writeHead(statusCode, { 'Content-Type': contentType, ...extraHeaders });
+  res.end(body);
+}
+
+function sendJson(res, data, statusCode = HTTP_STATUS.OK, extraHeaders = {}) {
+  sendResponse(res, statusCode, MIME_TYPES.JSON, JSON.stringify(data), extraHeaders);
+}
+
+function sendHtml(res, html, statusCode = HTTP_STATUS.OK) {
+  sendResponse(res, statusCode, MIME_TYPES.HTML, html);
+}
+
+function sendError(res, message, statusCode = HTTP_STATUS.INTERNAL_SERVER_ERROR) {
+  sendJson(res, { error: message }, statusCode);
+}
+
+/**
+ * Reads request stream body as UTF-8 string using Buffer concatenation.
+ * Preserves multi-byte UTF-8 sequences cleanly across TCP chunk boundaries.
+ */
+function readRequestBody(req, maxBytes = null) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const chunks = [];
+    let totalBytes = 0;
+    req.on('data', (chunk) => {
+      chunks.push(chunk);
+      totalBytes += chunk.length;
+      if (maxBytes && totalBytes > maxBytes) {
+        req.destroy();
+        rejectPromise(new Error('Payload too large'));
+      }
+    });
+    req.on('end', () => resolvePromise(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', (err) => rejectPromise(err));
+  });
+}
 
 const LOGIN_HTML = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -68,281 +118,81 @@ export async function startServer({ dir, port, scanDir, password, title }) {
 
   let uiHtml = await readFile(join(__dirname, 'public', 'index.html'), 'utf8');
   let loginHtml = LOGIN_HTML;
+
   if (title) {
-    // Feature: white-label branding — replace the product name in the page
-    // title, the topbar logo and the login card with the project's own title.
     const safe = escapeHtml(title);
     uiHtml = uiHtml
       .replace('<title>locale-studio</title>', `<title>${safe}</title>`)
       .replace(
-        '<div class="topbar-logo">locale<span>-studio</span></div>',
-        `<div class="topbar-logo">${safe}</div>`
+        '<div class="topbar-logo" onclick="goHome()">locale<span>-studio</span></div>',
+        `<div class="topbar-logo" onclick="goHome()">${safe}</div>`
       );
     loginHtml = loginHtml
       .replace('<title>locale-studio — login</title>', `<title>${safe} — login</title>`)
       .replace('<h1>locale-<span>studio</span></h1>', `<h1>${safe}</h1>`);
   }
+
   const sessions = new Set();
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${port}`);
 
+    // Auth Middleware
     if (password) {
-      const m = (req.headers.cookie || '').match(/(?:^|;\s*)i18n_session=([a-f0-9]{64})/);
-      const authed = m && sessions.has(m[1]);
+      const match = (req.headers.cookie || '').match(REGEX_PATTERNS.SESSION_COOKIE);
+      const isAuthed = match && sessions.has(match[1]);
 
-      if (!authed) {
-        if (url.pathname === '/api/login' && req.method === 'POST') {
-          let body = '';
-          req.on('data', (d) => {
-            body += d;
-            if (body.length > 4096) req.destroy();
-          });
-          req.on('end', async () => {
-            let ok = false;
-            try {
-              const attempt = JSON.parse(body).password;
-              ok = typeof attempt === 'string' && timingSafeEqual(sha256(attempt), sha256(password));
-            } catch {}
-            if (!ok) {
-              await new Promise((r) => setTimeout(r, 800)); // slow down brute force
-              res.writeHead(401, { 'Content-Type': 'application/json' });
-              return res.end(JSON.stringify({ error: 'Wrong password' }));
-            }
-            const token = randomBytes(32).toString('hex');
-            sessions.add(token);
-            if (sessions.size > 100) sessions.delete(sessions.values().next().value); // oldest out
-            res.writeHead(200, {
-              'Content-Type': 'application/json',
-              'Set-Cookie': `i18n_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400`,
-            });
-            return res.end(JSON.stringify({ ok: true }));
-          });
-          return;
+      if (!isAuthed) {
+        if (url.pathname === API_ROUTES.LOGIN && req.method === 'POST') {
+          return handleLogin(req, res, password, sessions);
         }
-        if (url.pathname === '/' || url.pathname === '/index.html') {
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          return res.end(loginHtml);
+        if (url.pathname === API_ROUTES.HOME || url.pathname === API_ROUTES.INDEX_HTML) {
+          return sendHtml(res, loginHtml);
         }
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ error: 'Authentication required' }));
+        return sendError(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
       }
     }
 
-    if (url.pathname === '/' || url.pathname === '/index.html') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(uiHtml);
+    // Static Index HTML
+    if (url.pathname === API_ROUTES.HOME || url.pathname === API_ROUTES.INDEX_HTML) {
+      return sendHtml(res, uiHtml);
     }
 
+    // Static Assets (/public/*)
     if (url.pathname.startsWith('/public/')) {
-      const ext = path.extname(url.pathname);
-      const mimeMap = {
-        '.css': 'text/css',
-        '.js': 'text/javascript',
-        '.svg': 'image/svg+xml',
-        '.png': 'image/png',
-        '.html': 'text/html'
-      };
-      const contentType = mimeMap[ext] || 'text/plain';
-      try {
-        const filePath = join(__dirname, url.pathname);
-        // SECURITY FIX: Prevent traversing outside the public directory
-        if (!filePath.startsWith(join(__dirname, 'public'))) {
-          throw new Error('Forbidden path');
-        }
-        const fileContent = await readFile(filePath);
-        res.writeHead(200, { 'Content-Type': contentType });
-        return res.end(fileContent);
-      } catch (e) {
-        res.writeHead(404);
-        return res.end('Not found');
-      }
+      return handlePublicStatic(url.pathname, res);
     }
 
-    if (url.pathname === '/api/messages' && req.method === 'GET') {
-      try {
-        const data = await loadMessages(dir);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ ...data, dir }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ error: e.message }));
-      }
+    // API Routes
+    if (url.pathname === API_ROUTES.MESSAGES && req.method === 'GET') {
+      return handleGetMessages(dir, res);
     }
 
-    // Feature 1: round-trip — unflatten dot-keys back to nested structure before writing
-    if (url.pathname === '/api/save' && req.method === 'POST') {
-      const chunks = [];
-      req.on('data', (d) => chunks.push(d));
-      req.on('end', async () => {
-        const body = Buffer.concat(chunks).toString('utf8');
-        try {
-          const { languages, keys, namespaces } = JSON.parse(body);
-          for (const lang of languages) {
-            const byNs = {};
-            for (const [fullKey, vals] of Object.entries(keys)) {
-              if (vals[lang] !== undefined) {
-                const idx = fullKey.indexOf(':');
-                let ns, key;
-                if (idx === -1) {
-                  ns = (namespaces && namespaces.includes('common')) ? 'common'
-                     : ((namespaces && namespaces.includes('translation')) ? 'translation'
-                     : ((namespaces && namespaces[0]) || 'common'));
-                  key = fullKey;
-                } else {
-                  ns = fullKey.substring(0, idx);
-                  key = fullKey.substring(idx + 1);
-                }
-                if (!byNs[ns]) byNs[ns] = {};
-                byNs[ns][key] = vals[lang];
-              }
-            }
-            // SECURITY FIX: Prevent Path Traversal
-            if (/[\\/\\\\]|^\.\./.test(lang)) {
-              throw new Error('Invalid language name');
-            }
-            const langDir = join(dir, lang);
-            if (!existsSync(langDir)) {
-              const fsPromises = await import('fs/promises');
-              await fsPromises.mkdir(langDir, { recursive: true });
-            }
-            for (const [ns, flat] of Object.entries(byNs)) {
-              // SECURITY FIX: Prevent Path Traversal
-              if (/[\\/\\\\]|^\.\./.test(ns)) {
-                throw new Error('Invalid namespace name');
-              }
-              const nsFile = join(langDir, `${ns}.json`);
-              let existingData = {};
-              try {
-                if (existsSync(nsFile)) {
-                  existingData = JSON.parse(await readFile(nsFile, 'utf8'));
-                }
-              } catch (e) {}
-
-              const nested = applyUpdatesAndPreserveOrder(existingData, flat);
-              const newContent = JSON.stringify(nested, null, 2) + '\n';
-
-              let oldContent = '';
-              try {
-                oldContent = await readFile(nsFile, 'utf8');
-              } catch (e) {}
-
-              if (oldContent !== newContent) {
-                await writeFile(nsFile, newContent);
-              }
-            }
-          }
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true }));
-        } catch (e) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
-        }
-      });
-      return;
+    if (url.pathname === API_ROUTES.SAVE && req.method === 'POST') {
+      return handleSaveMessages(req, res, dir);
     }
 
-    // Feature 2: Export CSV — RFC-4180, header row: key,lang1,lang2,...
-    if (url.pathname === '/api/export/csv' && req.method === 'GET') {
-      try {
-        const { languages, keys } = await loadMessages(dir);
-        const rows = [['key', ...languages]];
-        for (const [key, vals] of Object.entries(keys)) {
-          rows.push([key, ...languages.map((l) => vals[l] ?? '')]);
-        }
-        const csv = rows.map((row) => row.map(csvField).join(',')).join('\r\n');
-        res.writeHead(200, {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': 'attachment; filename=messages.csv',
-        });
-        return res.end(csv);
-      } catch (e) {
-        res.writeHead(500);
-        return res.end('Error: ' + e.message);
-      }
+    if (url.pathname === API_ROUTES.EXPORT_CSV && req.method === 'GET') {
+      return handleExportCSV(dir, res);
     }
 
-    // Feature 3: Import CSV — merge into current state, return merged { languages, keys, dir }
-    if (url.pathname === '/api/import/csv' && req.method === 'POST') {
-      const chunks = [];
-      req.on('data', (d) => chunks.push(d));
-      req.on('end', async () => {
-        const body = Buffer.concat(chunks).toString('utf8');
-        try {
-          const { languages: csvLangs, keys: csvKeys } = parseCSV(body);
-          if (!csvLangs.length) throw new Error('CSV has no language columns');
-
-          const { languages: existingLangs, keys: existingKeys } = await loadMessages(dir);
-          const allLangs = [...new Set([...existingLangs, ...csvLangs])];
-
-          // Merge: existing as base, CSV overwrites matching keys/langs, new keys added
-          const merged = {};
-          for (const [key, vals] of Object.entries(existingKeys)) {
-            merged[key] = { ...vals };
-          }
-          for (const [key, vals] of Object.entries(csvKeys)) {
-            if (!merged[key]) merged[key] = {};
-            for (const lang of csvLangs) {
-              merged[key][lang] = vals[lang] ?? '';
-            }
-          }
-          // Fill any missing lang slots
-          for (const key of Object.keys(merged)) {
-            for (const lang of allLangs) {
-              if (merged[key][lang] === undefined) merged[key][lang] = '';
-            }
-          }
-
-          const sortedKeys = {};
-          for (const k of Object.keys(merged).sort()) sortedKeys[k] = merged[k];
-
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ languages: allLangs, keys: sortedKeys, dir }));
-        } catch (e) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
-        }
-      });
-      return;
+    if (url.pathname === API_ROUTES.IMPORT_CSV && req.method === 'POST') {
+      return handleImportCSV(req, res, dir);
     }
 
-    // Feature 7: audit — cross-reference t() calls in source code against JSON keys
-    if (url.pathname === '/api/audit' && req.method === 'GET') {
-      try {
-        const cfg = await resolveConfig();
-        const root = resolve(process.cwd(), scanDir ?? cfg.scanDir);
-        if (!existsSync(root)) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(
-            JSON.stringify({
-              error: `Scan directory not found: ${root}. Set "scanDir" in i18n.scan.json or run with --scan <dir>.`,
-            })
-          );
-        }
-        const { languages, keys } = await loadMessages(dir);
-        const { used, dynamicCalls, filesScanned } = await scan({
-          ...cfg,
-          scanDir: root,
-          knownKeys: new Set(Object.keys(keys)),
-        });
-        const audit = computeAudit({ used, dynamicCalls, languages, keys });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ ...audit, scanDir: root, filesScanned }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ error: e.message }));
-      }
+    if (url.pathname === API_ROUTES.AUDIT && req.method === 'GET') {
+      return handleAudit(scanDir, dir, res);
     }
 
-    res.writeHead(404);
-    res.end('Not found');
+    // Fallback 404
+    sendResponse(res, HTTP_STATUS.NOT_FOUND, MIME_TYPES.TEXT, 'Not found');
   });
 
   server.listen(port, () => {
-    const url = `http://localhost:${port}`;
+    const serverUrl = `http://localhost:${port}`;
     console.log(`\n  locale-studio`);
     console.log(`  ─────────────────────────────────`);
-    console.log(`  Local:   \x1b[36m${url}\x1b[0m`);
+    console.log(`  Local:   \x1b[36m${serverUrl}\x1b[0m`);
     if (password) {
       for (const ip of externalIPs()) {
         console.log(`  Network: \x1b[36mhttp://${ip}:${port}\x1b[0m`);
@@ -353,8 +203,234 @@ export async function startServer({ dir, port, scanDir, password, title }) {
     }
     console.log(`  Dir:     \x1b[33m${dir}\x1b[0m`);
     console.log(`  Press \x1b[1mCtrl+C\x1b[0m to stop\n`);
-    if (!password) openBrowser(url);
+    if (!password) openBrowser(serverUrl);
   });
+}
+
+/**
+ * Handler: Password Login
+ */
+async function handleLogin(req, res, password, sessions) {
+  try {
+    const rawBody = await readRequestBody(req, LIMITS.MAX_LOGIN_BODY_BYTES);
+    let ok = false;
+    try {
+      const attempt = JSON.parse(rawBody).password;
+      ok = typeof attempt === 'string' && timingSafeEqual(sha256(attempt), sha256(password));
+    } catch {}
+
+    if (!ok) {
+      await new Promise((resolve) => setTimeout(resolve, TIMINGS.BRUTE_FORCE_DELAY_MS));
+      return sendError(res, 'Wrong password', HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    const token = randomBytes(LIMITS.TOKEN_BYTES).toString('hex');
+    sessions.add(token);
+    if (sessions.size > LIMITS.MAX_SESSIONS_COUNT) {
+      sessions.delete(sessions.values().next().value);
+    }
+
+    sendJson(
+      res,
+      { ok: true },
+      HTTP_STATUS.OK,
+      { 'Set-Cookie': `i18n_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${TIMINGS.SESSION_MAX_AGE_SEC}` }
+    );
+  } catch (err) {
+    sendError(res, err.message, HTTP_STATUS.BAD_REQUEST);
+  }
+}
+
+/**
+ * Handler: Serve Static Assets
+ */
+async function handlePublicStatic(pathname, res) {
+  const ext = path.extname(pathname);
+  const mimeMap = {
+    '.css': MIME_TYPES.CSS,
+    '.js': MIME_TYPES.JAVASCRIPT,
+    '.svg': MIME_TYPES.SVG,
+    '.png': MIME_TYPES.PNG,
+    '.html': MIME_TYPES.HTML,
+  };
+  const contentType = mimeMap[ext] || MIME_TYPES.TEXT;
+
+  try {
+    const filePath = join(__dirname, pathname);
+    if (!filePath.startsWith(join(__dirname, 'public'))) {
+      throw new Error('Forbidden path');
+    }
+    const fileContent = await readFile(filePath);
+    sendResponse(res, HTTP_STATUS.OK, contentType, fileContent);
+  } catch {
+    sendResponse(res, HTTP_STATUS.NOT_FOUND, MIME_TYPES.TEXT, 'Not found');
+  }
+}
+
+/**
+ * Handler: GET /api/messages
+ */
+async function handleGetMessages(dir, res) {
+  try {
+    const data = await loadMessages(dir);
+    sendJson(res, { ...data, dir });
+  } catch (err) {
+    sendError(res, err.message);
+  }
+}
+
+/**
+ * Handler: POST /api/save
+ */
+async function handleSaveMessages(req, res, dir) {
+  try {
+    const rawBody = await readRequestBody(req);
+    const { languages, keys, namespaces } = JSON.parse(rawBody);
+
+    for (const lang of languages) {
+      const byNs = {};
+      for (const [fullKey, vals] of Object.entries(keys)) {
+        if (vals[lang] !== undefined) {
+          const idx = fullKey.indexOf(':');
+          let ns, key;
+          if (idx === -1) {
+            ns = (namespaces && namespaces.includes(DEFAULT_NAMESPACES[0]))
+              ? DEFAULT_NAMESPACES[0]
+              : ((namespaces && namespaces.includes(DEFAULT_NAMESPACES[1]))
+                ? DEFAULT_NAMESPACES[1]
+                : ((namespaces && namespaces[0]) || DEFAULT_NAMESPACES[0]));
+            key = fullKey;
+          } else {
+            ns = fullKey.substring(0, idx);
+            key = fullKey.substring(idx + 1);
+          }
+          if (!byNs[ns]) byNs[ns] = {};
+          byNs[ns][key] = vals[lang];
+        }
+      }
+
+      if (REGEX_PATTERNS.PATH_TRAVERSAL.test(lang)) {
+        throw new Error('Invalid language name');
+      }
+
+      const langDir = join(dir, lang);
+      if (!existsSync(langDir)) {
+        const fsPromises = await import('fs/promises');
+        await fsPromises.mkdir(langDir, { recursive: true });
+      }
+
+      for (const [ns, flat] of Object.entries(byNs)) {
+        if (REGEX_PATTERNS.PATH_TRAVERSAL.test(ns)) {
+          throw new Error('Invalid namespace name');
+        }
+        const nsFile = join(langDir, `${ns}.json`);
+        let existingData = {};
+        try {
+          if (existsSync(nsFile)) {
+            existingData = JSON.parse(await readFile(nsFile, 'utf8'));
+          }
+        } catch {}
+
+        const nested = applyUpdatesAndPreserveOrder(existingData, flat);
+        const newContent = JSON.stringify(nested, null, 2) + '\n';
+
+        let oldContent = '';
+        try {
+          oldContent = await readFile(nsFile, 'utf8');
+        } catch {}
+
+        if (oldContent !== newContent) {
+          await writeFile(nsFile, newContent);
+        }
+      }
+    }
+    sendJson(res, { ok: true });
+  } catch (err) {
+    sendError(res, err.message);
+  }
+}
+
+/**
+ * Handler: GET /api/export/csv
+ */
+async function handleExportCSV(dir, res) {
+  try {
+    const { languages, keys } = await loadMessages(dir);
+    const rows = [['key', ...languages]];
+    for (const [key, vals] of Object.entries(keys)) {
+      rows.push([key, ...languages.map((l) => vals[l] ?? '')]);
+    }
+    const csv = rows.map((row) => row.map(csvField).join(',')).join('\r\n');
+    sendResponse(res, HTTP_STATUS.OK, MIME_TYPES.CSV, csv, {
+      'Content-Disposition': 'attachment; filename=messages.csv',
+    });
+  } catch (err) {
+    sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, MIME_TYPES.TEXT, 'Error: ' + err.message);
+  }
+}
+
+/**
+ * Handler: POST /api/import/csv
+ */
+async function handleImportCSV(req, res, dir) {
+  try {
+    const rawBody = await readRequestBody(req);
+    const { languages: csvLangs, keys: csvKeys } = parseCSV(rawBody);
+    if (!csvLangs.length) throw new Error('CSV has no language columns');
+
+    const { languages: existingLangs, keys: existingKeys } = await loadMessages(dir);
+    const allLangs = [...new Set([...existingLangs, ...csvLangs])];
+
+    const merged = {};
+    for (const [key, vals] of Object.entries(existingKeys)) {
+      merged[key] = { ...vals };
+    }
+    for (const [key, vals] of Object.entries(csvKeys)) {
+      if (!merged[key]) merged[key] = {};
+      for (const lang of csvLangs) {
+        merged[key][lang] = vals[lang] ?? '';
+      }
+    }
+    for (const key of Object.keys(merged)) {
+      for (const lang of allLangs) {
+        if (merged[key][lang] === undefined) merged[key][lang] = '';
+      }
+    }
+
+    const sortedKeys = {};
+    for (const k of Object.keys(merged).sort()) sortedKeys[k] = merged[k];
+
+    sendJson(res, { languages: allLangs, keys: sortedKeys, dir });
+  } catch (err) {
+    sendError(res, err.message, HTTP_STATUS.BAD_REQUEST);
+  }
+}
+
+/**
+ * Handler: GET /api/audit
+ */
+async function handleAudit(scanDir, dir, res) {
+  try {
+    const cfg = await resolveConfig();
+    const root = resolve(process.cwd(), scanDir ?? cfg.scanDir);
+    if (!existsSync(root)) {
+      return sendError(
+        res,
+        `Scan directory not found: ${root}. Set "scanDir" in i18n.scan.json or run with --scan <dir>.`,
+        HTTP_STATUS.BAD_REQUEST
+      );
+    }
+    const { languages, keys } = await loadMessages(dir);
+    const { used, dynamicCalls, filesScanned } = await scan({
+      ...cfg,
+      scanDir: root,
+      knownKeys: new Set(Object.keys(keys)),
+    });
+    const audit = computeAudit({ used, dynamicCalls, languages, keys });
+    sendJson(res, { ...audit, scanDir: root, filesScanned });
+  } catch (err) {
+    sendError(res, err.message);
+  }
 }
 
 function externalIPs() {
@@ -364,10 +440,10 @@ function externalIPs() {
     .map((i) => i.address);
 }
 
-function escapeHtml(s) {
-  return String(s).replace(
+function escapeHtml(str) {
+  return String(str).replace(
     /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+    (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]
   );
 }
 
@@ -388,11 +464,10 @@ export async function loadMessages(dir) {
 
   for (const lang of languages) {
     raw[lang] = {};
-    // SECURITY FIX: Prevent Path Traversal
-            if (/[\\/\\\\]|^\.\./.test(lang)) {
-              throw new Error('Invalid language name');
-            }
-            const langDir = join(dir, lang);
+    if (REGEX_PATTERNS.PATH_TRAVERSAL.test(lang)) {
+      throw new Error('Invalid language name');
+    }
+    const langDir = join(dir, lang);
     const nsFiles = (await readdir(langDir)).filter((f) => f.endsWith('.json')).sort();
 
     for (const nsFile of nsFiles) {
@@ -428,22 +503,6 @@ function flattenObject(obj, prefix = '') {
     } else {
       result[key] = String(v ?? '');
     }
-  }
-  return result;
-}
-
-function unflattenObject(flat) {
-  const result = {};
-  for (const [dotKey, value] of Object.entries(flat)) {
-    const parts = dotKey.split('.');
-    let cur = result;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (typeof cur[parts[i]] !== 'object' || cur[parts[i]] === null) {
-        cur[parts[i]] = {};
-      }
-      cur = cur[parts[i]];
-    }
-    cur[parts[parts.length - 1]] = value;
   }
   return result;
 }
