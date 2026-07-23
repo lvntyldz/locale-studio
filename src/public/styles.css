@@ -26,6 +26,7 @@ body {
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #0f172a;
+  cursor: pointer;
 }
 .topbar-logo span { color: #be1128; font-weight: 800; }
 
