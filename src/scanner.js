@@ -167,7 +167,7 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
     }
 
     // Extract dynamic template literal prefixes (e.g. `prefix.${var}` or "prefix." + var)
-    const DYN_PREFIX_RE = /(?:`([\w.:/-]+)\.\$\{)|(?:["'` font-]*([\w.:/-]+)\.["'`]\s*\+)/g;
+    const DYN_PREFIX_RE = /(?:`([\w.:/-]+)\.\$\{)|(?:["'`\s]*([\w.:/-]+)\.["'`]\s*\+)/g;
     let pm;
     while ((pm = DYN_PREFIX_RE.exec(text))) {
       const p = pm[1] || pm[2];
@@ -245,14 +245,13 @@ export function computeAudit({ used, dynamicCalls, languages, keys }) {
     }
   }
 
-  // Dynamic prefix & leaf resolution pass for remaining JSON keys
-  if (dynamicPrefixes.size > 0 || matchedJsonKeys.size > 0) {
+  // Dynamic prefix resolution pass for remaining JSON keys
+  if (dynamicPrefixes.size > 0) {
     for (const k of jsonKeys) {
       if (matchedJsonKeys.has(k)) continue;
       const colonIdx = k.indexOf(':');
       const ns = colonIdx !== -1 ? k.slice(0, colonIdx) : '';
       const bareKey = colonIdx !== -1 ? k.slice(colonIdx + 1) : k;
-      const leaf = bareKey.includes('.') ? bareKey.slice(bareKey.lastIndexOf('.') + 1) : bareKey;
 
       let isMatch = false;
       for (const p of dynamicPrefixes) {
@@ -264,15 +263,6 @@ export function computeAudit({ used, dynamicCalls, languages, keys }) {
           const pNs = p.slice(0, p.indexOf(':'));
           const pBare = p.slice(p.indexOf(':') + 1);
           if (ns === pNs && (bareKey.startsWith(pBare + '.') || bareKey === pBare)) {
-            isMatch = true;
-            break;
-          }
-        }
-      }
-
-      if (!isMatch && leaf) {
-        for (const usedKey of used.keys()) {
-          if (usedKey.includes(leaf)) {
             isMatch = true;
             break;
           }
