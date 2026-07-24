@@ -36,8 +36,8 @@ if (process.env.NODE_ENV === 'development') {
 import { useI18nInspector } from 'locale-studio/react';
 
 function App() {
-  // This hook listens for Alt+Click events
-  useI18nInspector(); 
+  // This hook listens for Alt+Click events (pass { enabled: false } to disable e.g. in test environments)
+  useI18nInspector({ enabled: process.env.VITE_DISABLE_LOCALE_STUDIO !== 'true' }); 
   
   return <div>Your Application</div>;
 }
