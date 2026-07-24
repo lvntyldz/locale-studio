@@ -88,6 +88,10 @@ export const devtoolsPostProcessor = {
 };
 
 export function initI18nInspector(options = {}) {
+  if (options.enabled === false) {
+    return () => {};
+  }
+
   const handleGlobalClick = async (e) => {
     // Opt to use Alt/Option + Click. Standard Cmd+Click is often used for "open link in new tab".
     if (!e.altKey) return;
