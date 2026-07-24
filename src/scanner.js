@@ -27,11 +27,12 @@ const CALL_SITE =
 //   const NAME = (params) => func(`NS.${key}`)
 //   const NAME = (params) => func("NS." + key)
 //   const { t: ALIAS } = useTranslation('NS')
+//   const { t } = useTranslation('NS')
 const WRAPPER_DEF =
   /const\s+(\w+)\s*=\s*(?:useCallback\s*\(\s*)?(?:\([^)=\n]{0,80}\)|[\w$]+)\s*(?::[^=>\n]{0,40})?\s*=>\s*([\w$]+)\(\s*(?:`([A-Z][A-Z0-9_]*)\.|"([A-Z][A-Z0-9_]*)\."\s*\+)/g;
 
-const USE_TRANSLATION_ALIAS_DEF =
-  /const\s+\{\s*t\s*:\s*(\w+)\s*\}\s*=\s*use(?:Translation|I18n)\s*\(\s*(?:['"`]([\w-]+)['"`]|\[\s*['"`]([\w-]+)['"`])/g;
+const USE_TRANSLATION_DEF =
+  /const\s+\{\s*t(?:\s*:\s*(\w+))?\s*\}\s*=\s*use(?:Translation|I18n)\s*\(\s*(?:['"`]([\w-]+)['"`]|\[\s*['"`]([\w-]+)['"`])/g;
 
 function detectNamespaceWrappers(text) {
   const results = [];
@@ -43,12 +44,12 @@ function detectNamespaceWrappers(text) {
     if (prefix) results.push({ name: m[1], callee: m[2], prefix, range: [m.index, m.index + m[0].length] });
   }
 
-  USE_TRANSLATION_ALIAS_DEF.lastIndex = 0;
+  USE_TRANSLATION_DEF.lastIndex = 0;
   let tm;
-  while ((tm = USE_TRANSLATION_ALIAS_DEF.exec(text))) {
-    const name = tm[1];
+  while ((tm = USE_TRANSLATION_DEF.exec(text))) {
+    const name = tm[1] || 't';
     const prefix = tm[2] || tm[3];
-    if (name && prefix) {
+    if (prefix) {
       results.push({ name, callee: 'useTranslation', prefix, range: [tm.index, tm.index + tm[0].length] });
     }
   }
@@ -73,7 +74,7 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
   // Ground truth for wrapper validation: only namespaces that actually exist in
   // the JSON files are trusted. Rejects lookalikes (`const log = s => f(`FATAL.${s}`)`).
   const knownNamespaces = knownKeys
-    ? new Set([...knownKeys].filter((k) => k.includes('.')).map((k) => k.slice(0, k.indexOf('.'))))
+    ? new Set([...knownKeys].filter((k) => k.includes(':')).map((k) => k.slice(0, k.indexOf(':'))))
     : null;
 
   // Build lookup table from bare sub-key / full key to known JSON keys for detecting string literals
@@ -103,7 +104,7 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
     const staticAt = new Set();
 
     // Namespace wrapper & useTranslation alias pre-pass:
-    // e.g. const { t: tProfile } = useTranslation('profile') -> tProfile("menu.couponss") resolves to profile:menu.couponss
+    // e.g. const { t } = useTranslation('check-in') -> t("errors.missingOrder") resolves to check-in:errors.missingOrder
     const candidates = detectNamespaceWrappers(text);
     const candidateRanges = candidates.map((c) => c.range).filter(Boolean);
     const inDef = (idx, ranges) => ranges.some(([s, e]) => idx >= s && idx < e);
@@ -120,16 +121,30 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
         wrapperPositions.add(wm.index);
         staticAt.add(wm.index);
         const rawKey = wm[1];
-        let fullKey;
         if (rawKey.includes(':')) {
-          fullKey = rawKey;
-        } else if (name !== 't' && prefix) {
-          fullKey = (prefix.includes(':') || prefix.includes('.')) ? `${prefix}.${rawKey}` : `${prefix}:${rawKey}`;
+          const fullKey = rawKey;
+          if (!used.has(fullKey)) used.set(fullKey, []);
+          used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
         } else {
-          fullKey = rawKey;
+          // Check if rawKey matches an existing key in jsonKeys across namespaces
+          const existingMatches = knownKeys ? resolveKeyMatches(rawKey, knownKeys, knownNamespaces) : [];
+          if (existingMatches.length > 0) {
+            const prefixMatches = prefix ? existingMatches.filter((m) => m.startsWith(`${prefix}:`)) : [];
+            const targetMatches = prefixMatches.length > 0 ? prefixMatches : existingMatches;
+            for (const fk of targetMatches) {
+              if (!used.has(fk)) used.set(fk, []);
+              used.get(fk).push({ file: rel, line: lineAt(wm.index) });
+            }
+          } else if (prefix) {
+            const fullKey = (prefix.includes(':') || prefix.includes('.')) ? `${prefix}.${rawKey}` : `${prefix}:${rawKey}`;
+            if (!used.has(fullKey)) used.set(fullKey, []);
+            used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
+          } else {
+            const fullKey = rawKey;
+            if (!used.has(fullKey)) used.set(fullKey, []);
+            used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
+          }
         }
-        if (!used.has(fullKey)) used.set(fullKey, []);
-        used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
         if (wm.index === wre.lastIndex) wre.lastIndex++;
       }
       // Non-literal args to a wrapper (t(variable), t(`X_${i}`)) are dynamic keys.
@@ -231,15 +246,17 @@ function resolveKeyMatches(key, jsonKeys, knownNamespaces) {
 
   if (!key.includes(':')) {
     const nsMatches = [];
-    for (const ns of knownNamespaces) {
-      const nsKey = `${ns}:${key}`;
-      if (jsonKeys.has(nsKey)) {
-        nsMatches.push(nsKey);
-      }
-      for (const suf of PLURAL_SUFFIXES) {
-        const nsPluralKey = nsKey + suf;
-        if (jsonKeys.has(nsPluralKey)) {
-          nsMatches.push(nsPluralKey);
+    if (knownNamespaces) {
+      for (const ns of knownNamespaces) {
+        const nsKey = `${ns}:${key}`;
+        if (jsonKeys.has(nsKey)) {
+          nsMatches.push(nsKey);
+        }
+        for (const suf of PLURAL_SUFFIXES) {
+          const nsPluralKey = nsKey + suf;
+          if (jsonKeys.has(nsPluralKey)) {
+            nsMatches.push(nsPluralKey);
+          }
         }
       }
     }
