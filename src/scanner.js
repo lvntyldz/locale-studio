@@ -111,38 +111,60 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
     const wrapperPositions = new Set();
     const dynAt = new Set();
     const defRanges = [];
-    for (const { name, callee, prefix, range } of candidates) {
-      if (knownNamespaces && !knownNamespaces.has(prefix) && !isI18nCallee(callee, text)) continue;
+    for (const { name, callee, prefix: defaultPrefix, range } of candidates) {
+      if (knownNamespaces && !knownNamespaces.has(defaultPrefix) && !isI18nCallee(callee, text)) continue;
       if (range) defRanges.push(range);
       const safeN = name.replace(/\$/g, '\\$');
-      const wre = new RegExp(`(?<![\\w$.])${safeN}(?:\\?\\.)?\\(\\s*["'\`]([\\w.-]+)["'\`]`, 'g');
+      // Matches t('key', { ns: 'override-ns' }) or t('key')
+      const wre = new RegExp(`(?<![\\w$.])${safeN}(?:\\?\\.)?\\(\\s*["'\`]([\\w.-]+)["'\`](?:\\s*,\\s*\\{[^}]*\\bns\\s*:\\s*["'\`]([\\w.-]+)["'\`])?`, 'g');
       let wm;
       while ((wm = wre.exec(text))) {
         wrapperPositions.add(wm.index);
         staticAt.add(wm.index);
         const rawKey = wm[1];
+        const prefix = wm[2] || defaultPrefix; // Override namespace via { ns: '...' } option if present
+
         if (rawKey.includes(':')) {
           const fullKey = rawKey;
           if (!used.has(fullKey)) used.set(fullKey, []);
           used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
         } else {
-          // Check if rawKey matches an existing key in jsonKeys across namespaces
+          // Check if rawKey matches existing keys in jsonKeys
           const existingMatches = knownKeys ? resolveKeyMatches(rawKey, knownKeys, knownNamespaces) : [];
-          if (existingMatches.length > 0) {
-            const prefixMatches = prefix ? existingMatches.filter((m) => m.startsWith(`${prefix}:`)) : [];
-            const targetMatches = prefixMatches.length > 0 ? prefixMatches : existingMatches;
-            for (const fk of targetMatches) {
-              if (!used.has(fk)) used.set(fk, []);
-              used.get(fk).push({ file: rel, line: lineAt(wm.index) });
+          
+          if (prefix && prefix !== 'common') {
+            // Component is bound to a specific non-common namespace (e.g. wishlist, check-in)
+            const nsMatch = existingMatches.filter((m) => m.startsWith(`${prefix}:`));
+            const commonMatch = existingMatches.filter((m) => m.startsWith('common:'));
+            
+            if (nsMatch.length > 0) {
+              for (const fk of nsMatch) {
+                if (!used.has(fk)) used.set(fk, []);
+                used.get(fk).push({ file: rel, line: lineAt(wm.index) });
+              }
+            } else if (commonMatch.length > 0) {
+              for (const fk of commonMatch) {
+                if (!used.has(fk)) used.set(fk, []);
+                used.get(fk).push({ file: rel, line: lineAt(wm.index) });
+              }
+            } else {
+              // Key not found in bound namespace or common -> missing key in bound namespace
+              const fullKey = `${prefix}:${rawKey}`;
+              if (!used.has(fullKey)) used.set(fullKey, []);
+              used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
             }
-          } else if (prefix) {
-            const fullKey = (prefix.includes(':') || prefix.includes('.')) ? `${prefix}.${rawKey}` : `${prefix}:${rawKey}`;
-            if (!used.has(fullKey)) used.set(fullKey, []);
-            used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
           } else {
-            const fullKey = rawKey;
-            if (!used.has(fullKey)) used.set(fullKey, []);
-            used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
+            // Component uses common or default namespace
+            if (existingMatches.length > 0) {
+              for (const fk of existingMatches) {
+                if (!used.has(fk)) used.set(fk, []);
+                used.get(fk).push({ file: rel, line: lineAt(wm.index) });
+              }
+            } else {
+              const fullKey = prefix ? `${prefix}:${rawKey}` : rawKey;
+              if (!used.has(fullKey)) used.set(fullKey, []);
+              used.get(fullKey).push({ file: rel, line: lineAt(wm.index) });
+            }
           }
         }
         if (wm.index === wre.lastIndex) wre.lastIndex++;
@@ -214,10 +236,12 @@ export async function scan({ scanDir, patterns = ['auto'], extensions, ignore, k
 
     // Bare key literal pass: finds string literals in code matching multi-segment known keys
     // e.g. label: 'validation.firstNameRequired' or 'themeModeSwitch.lightLabel'
+    // Skip any literal that was already captured as a t('key') call (staticAt).
     if (knownBareToFull.size > 0) {
       const BARE_LITERAL_RE = /["'\`]([\w.-]+\.[\w.-]+)["'\`]/g;
       let bm;
       while ((bm = BARE_LITERAL_RE.exec(text))) {
+        if (staticAt.has(bm.index)) continue;
         const val = bm[1];
         if (knownBareToFull.has(val)) {
           staticAt.add(bm.index);
@@ -248,14 +272,14 @@ function resolveKeyMatches(key, jsonKeys, knownNamespaces) {
     const nsMatches = [];
     if (knownNamespaces) {
       for (const ns of knownNamespaces) {
-        const nsKey = `${ns}:${key}`;
-        if (jsonKeys.has(nsKey)) {
-          nsMatches.push(nsKey);
+        const testNsKey = `${ns}:${key}`;
+        if (jsonKeys.has(testNsKey)) {
+          nsMatches.push(testNsKey);
         }
         for (const suf of PLURAL_SUFFIXES) {
-          const nsPluralKey = nsKey + suf;
-          if (jsonKeys.has(nsPluralKey)) {
-            nsMatches.push(nsPluralKey);
+          const testNsPluralKey = testNsKey + suf;
+          if (jsonKeys.has(testNsPluralKey)) {
+            nsMatches.push(testNsPluralKey);
           }
         }
       }
