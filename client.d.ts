@@ -1,6 +1,7 @@
 export interface I18nInspectorOptions {
   editorPort?: number;
   pingPort?: number;
+  enabled?: boolean;
 }
 
 export declare const devtoolsPostProcessor: {
