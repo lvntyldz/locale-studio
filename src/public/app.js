@@ -642,7 +642,7 @@ function auditAddKey(key) {
   if (finalKey.includes(':')) {
     targetNs = finalKey.split(':')[0];
   } else {
-    targetNs = getDefaultNamespace();
+    targetNs = activeNamespace || getDefaultNamespace();
     finalKey = targetNs + ':' + finalKey;
   }
 
